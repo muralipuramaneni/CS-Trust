@@ -1,0 +1,225 @@
+@import "tailwindcss";
+
+/* Class-based dark mode (ThemeProvider toggles .dark on <html>) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-display: "Sora", "Segoe UI", sans-serif;
+  --font-sans: "Sora", "Segoe UI", sans-serif;
+
+  /* Brand orange (attachment) */
+  --color-brand-50: #fff7ed;
+  --color-brand-100: #ffedd5;
+  --color-brand-200: #fed7aa;
+  --color-brand-300: #fdba74;
+  --color-brand-400: #fb923c;
+  --color-brand-500: #f97316;
+  --color-brand-600: #ea580c;
+  --color-brand-700: #c2410c;
+  --color-brand-800: #9a3412;
+  --color-brand-900: #7c2d12;
+
+  /* Keep forest tokens for later modules / compatibility */
+  --color-forest-950: #0b1f18;
+  --color-forest-900: #102a20;
+  --color-forest-800: #143528;
+  --color-forest-700: #1a4534;
+  --color-forest-600: #235a43;
+  --color-forest-500: #2f7356;
+  --color-forest-400: #4d9474;
+  --color-forest-300: #7ab597;
+  --color-forest-200: #b7d8c7;
+  --color-forest-100: #e3f1ea;
+  --color-forest-50: #f3faf6;
+
+  --color-ink: #1f2937;
+  --color-muted: #6b7280;
+  --color-danger: #b42318;
+  --color-danger-soft: #fef3f2;
+  --color-surface: #f3f4f6;
+
+  --shadow-panel: 0 25px 60px rgba(15, 23, 42, 0.12);
+  --shadow-card: 0 18px 40px rgba(15, 23, 42, 0.08);
+
+  --animate-fade-up: fade-up 0.45s ease-out both;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@layer base {
+  html {
+    @apply antialiased;
+  }
+
+  html.dark {
+    color-scheme: dark;
+    --color-ink: #e2e8f0;
+    --color-muted: #94a3b8;
+    --color-danger: #f87171;
+    --color-danger-soft: #450a0a;
+    --color-surface: #0b1220;
+  }
+
+  body {
+    @apply m-0 min-h-svh min-w-0 w-full overflow-x-hidden bg-surface font-sans text-ink transition-colors duration-200;
+  }
+
+  html.dark body {
+    background-color: #0b1220;
+    color: #e2e8f0;
+  }
+
+  #root {
+    @apply min-h-svh w-full min-w-0;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-sans font-semibold tracking-tight;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
+  .focus\:not-sr-only:focus {
+    position: absolute;
+    width: auto;
+    height: auto;
+    padding: inherit;
+    margin: inherit;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
+  }
+}
+
+@layer components {
+  .field-control {
+    @apply h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition;
+    @apply focus:border-brand-400 focus:ring-2 focus:ring-brand-200;
+    @apply disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400;
+    @apply dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100;
+    @apply dark:focus:border-brand-400 dark:focus:ring-brand-500/20;
+    @apply dark:disabled:bg-slate-800 dark:disabled:text-slate-500;
+  }
+
+  .app-shell {
+    width: 100%;
+    min-width: 0;
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(249, 115, 22, 0.07), transparent 55%),
+      radial-gradient(900px 500px at 100% 0%, rgba(14, 165, 233, 0.06), transparent 50%),
+      linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  }
+
+  html.dark .app-shell {
+    background:
+      radial-gradient(1000px 500px at 8% -8%, rgba(249, 115, 22, 0.12), transparent 55%),
+      radial-gradient(800px 420px at 100% 0%, rgba(56, 189, 248, 0.08), transparent 50%),
+      linear-gradient(180deg, #0b1220 0%, #0f172a 55%, #111827 100%);
+  }
+
+  .animate-fade-up {
+    animation: var(--animate-fade-up);
+  }
+
+  tbody tr {
+    @apply transition-colors;
+  }
+
+  tbody tr:hover {
+    @apply bg-orange-50/40 dark:bg-orange-500/10;
+  }
+
+  /* Soft text helpers used across module pages */
+  .dark .text-slate-900 {
+    color: #f1f5f9;
+  }
+
+  .dark .text-slate-800 {
+    color: #e2e8f0;
+  }
+
+  .dark .text-slate-700 {
+    color: #cbd5e1;
+  }
+
+  .dark .text-slate-600 {
+    color: #94a3b8;
+  }
+
+  .dark .text-slate-500 {
+    color: #94a3b8;
+  }
+
+  .dark .text-slate-400 {
+    color: #64748b;
+  }
+
+  .dark .border-slate-100 {
+    border-color: rgb(30 41 59 / 0.9);
+  }
+
+  .dark .border-slate-200,
+  .dark .border-slate-200\/70,
+  .dark .border-slate-200\/80,
+  .dark .border-slate-200\/90 {
+    border-color: rgb(51 65 85 / 0.85);
+  }
+
+  .dark .bg-slate-50,
+  .dark .bg-slate-50\/50,
+  .dark .bg-slate-50\/80,
+  .dark .bg-slate-50\/90 {
+    background-color: rgb(15 23 42 / 0.85);
+  }
+
+  .dark .bg-white,
+  .dark .bg-white\/75,
+  .dark .bg-white\/90 {
+    background-color: rgb(15 23 42 / 0.92);
+  }
+
+  .dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+  .dark .divide-slate-100\/90 > :not([hidden]) ~ :not([hidden]) {
+    border-color: rgb(30 41 59 / 0.9);
+  }
+
+  .dark .ring-slate-200\/70,
+  .dark .ring-slate-200\/80 {
+    --tw-ring-color: rgb(51 65 85 / 0.8);
+  }
+
+  .dark .hover\:bg-slate-50:hover {
+    background-color: rgb(30 41 59 / 0.9);
+  }
+
+  .dark .hover\:bg-orange-50:hover,
+  .dark .hover\:bg-orange-50\/50:hover {
+    background-color: rgb(124 45 18 / 0.35);
+  }
+
+  .dark .hover\:border-orange-100:hover,
+  .dark .hover\:border-orange-200:hover {
+    border-color: rgb(154 52 18 / 0.55);
+  }
+}
