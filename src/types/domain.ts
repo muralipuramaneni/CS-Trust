@@ -9,7 +9,7 @@ export interface School {
   studentCount: number;
   computerCount: number;
   teacherCount: number;
-  status: 'active' | 'disabled';
+  status: 'active';
   syllabusCompletion: number;
   sponsorId?: string;
 }
@@ -94,4 +94,16 @@ export interface ActivityItem {
   id: string;
   text: string;
   time: string;
+}
+
+/** Sponsor account that can be assigned to schools (admin-managed) */
+export interface SponsorProfile {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  organization: string;
+  address: string;
+  active: boolean;
+  schoolIds: string[];
 }

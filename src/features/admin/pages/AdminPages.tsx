@@ -7,7 +7,10 @@ import {
   FormField,
   Input,
   Modal,
+  LeaveReviewActions,
   TableRowActions,
+  TableSearch,
+  matchesSearch,
 } from '../../../components/ui';
 import {
   Badge,
@@ -37,6 +40,7 @@ import {
   IconSpark,
   IconTicket,
   IconTrendUp,
+  IconUserPlus,
   IconUsers,
 } from '../../../components/ui/icons';
 import type {
@@ -44,6 +48,7 @@ import type {
   EventItem,
   LeaveRequest,
   School,
+  SponsorProfile,
   Student,
   SupportTicket,
   TeacherProfile,
@@ -55,6 +60,8 @@ import {
   recentActivities,
   schools,
   schools as seedSchools,
+  sponsors,
+  sponsors as seedSponsors,
   students,
   students as seedStudents,
   teachers,
@@ -92,6 +99,8 @@ export function AdminDashboardPage() {
   const pendingLeaves = leaves.filter((l) => l.status === 'Pending').length;
   const totalStudents = students.length + 530;
   const teacherPresencePct = Math.round((presentTeachers / Math.max(teachers.length, 1)) * 100);
+  const activeSponsors = sponsors.filter((s) => s.active);
+  const schoolsWithSponsor = schools.filter((s) => s.sponsorId).length;
 
   const todayLabel = new Intl.DateTimeFormat('en-IN', {
     weekday: 'long',
@@ -133,8 +142,8 @@ export function AdminDashboardPage() {
               {greeting}, {firstName}
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
-              Trust-wide snapshot across schools, attendance, syllabus progress, assets and
-              support. Focus on items that need action today.
+              Trust-wide snapshot across schools, sponsors, attendance, syllabus progress,
+              assets and support. Focus on items that need action today.
             </p>
             <div className="mt-5 flex flex-wrap gap-2">
               <Link to="/admin/tickets">
@@ -183,7 +192,7 @@ export function AdminDashboardPage() {
             Stable today
           </span>
         </div>
-        <div className="grid w-full gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid w-full gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-5">
           <StatCard
             label="Total Schools"
             value={schools.length}
@@ -206,6 +215,13 @@ export function AdminDashboardPage() {
             trend={{ label: '+12 admitted', positive: true }}
             accent="emerald"
             icon={<IconUsers className="h-4 w-4" />}
+          />
+          <StatCard
+            label="Sponsors"
+            value={activeSponsors.length}
+            hint={`${schoolsWithSponsor} schools covered`}
+            accent="rose"
+            icon={<IconUserPlus className="h-4 w-4" />}
           />
           <StatCard
             label="Syllabus Completion"
@@ -400,9 +416,14 @@ export function AdminDashboardPage() {
                       </p>
                     </div>
                   </div>
-                  <Button type="button" variant="outline">
-                    Assign
-                  </Button>
+                  <Link
+                    to="/admin/tickets"
+                    title="Assign ticket"
+                    aria-label="Assign ticket"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                  >
+                    <IconUserPlus className="h-4 w-4" />
+                  </Link>
                 </div>
               ))}
             {pendingLeaves > 0 ? (
@@ -449,6 +470,7 @@ export function AdminDashboardPage() {
             {[
               { to: '/admin/schools', label: 'Manage schools', icon: IconSchool },
               { to: '/admin/teachers', label: 'Manage teachers', icon: IconUsers },
+              { to: '/admin/sponsors', label: 'Assign sponsors', icon: IconUserPlus },
               { to: '/admin/reports', label: 'Export reports', icon: IconTrendUp },
             ].map((action) => {
               const Icon = action.icon;
@@ -530,21 +552,37 @@ const SCHOOLS_PAGE_SIZE = 10;
 export function AdminSchoolsPage() {
   const [schoolList, setSchoolList] = useState<School[]>(() => [...seedSchools]);
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState(emptySchoolForm);
 
-  const totalPages = Math.max(1, Math.ceil(schoolList.length / SCHOOLS_PAGE_SIZE));
+  const filteredSchools = schoolList.filter((school) =>
+    matchesSearch(
+      search,
+      school.name,
+      school.district,
+      school.mandal,
+      school.principalName,
+      school.contactNumber,
+    ),
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filteredSchools.length / SCHOOLS_PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageStart = (safePage - 1) * SCHOOLS_PAGE_SIZE;
-  const pageSchools = schoolList.slice(pageStart, pageStart + SCHOOLS_PAGE_SIZE);
-  const rangeFrom = schoolList.length === 0 ? 0 : pageStart + 1;
-  const rangeTo = Math.min(pageStart + SCHOOLS_PAGE_SIZE, schoolList.length);
+  const pageSchools = filteredSchools.slice(pageStart, pageStart + SCHOOLS_PAGE_SIZE);
+  const rangeFrom = filteredSchools.length === 0 ? 0 : pageStart + 1;
+  const rangeTo = Math.min(pageStart + SCHOOLS_PAGE_SIZE, filteredSchools.length);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
 
   const closeModal = () => {
     setOpen(false);
@@ -602,12 +640,19 @@ export function AdminSchoolsPage() {
   return (
     <AdminShell
       title="School Management"
-      description="Add, edit, disable or delete schools; assign teachers and sponsors; open school dashboard."
+      description="Add, edit or delete schools; assign teachers and sponsors; open school dashboard."
       eyebrow={false}
       actions={
-        <Button type="button" variant="primary" onClick={openCreate}>
-          Add School
-        </Button>
+        <>
+          <TableSearch
+            value={search}
+            onChange={setSearch}
+            placeholder="Search schools…"
+          />
+          <Button type="button" variant="primary" onClick={openCreate}>
+            Add School
+          </Button>
+        </>
       }
     >
       <Card padding="none" className="overflow-hidden">
@@ -620,36 +665,38 @@ export function AdminSchoolsPage() {
             'Students',
             'Computers',
             'Teachers',
-            'Status',
             'Actions',
           ]}
         >
-          {pageSchools.map((school) => (
-            <tr key={school.id}>
-              <Td className="font-medium text-slate-900 dark:text-slate-100">{school.name}</Td>
-              <Td>
-                {school.district}
-                <span className="text-slate-400"> · </span>
-                {school.mandal}
-              </Td>
-              <Td>{school.principalName}</Td>
-              <Td>{school.contactNumber}</Td>
-              <Td>{school.studentCount}</Td>
-              <Td>{school.computerCount}</Td>
-              <Td>{school.teacherCount}</Td>
-              <Td>
-                <Badge tone={school.status === 'active' ? 'success' : 'neutral'}>
-                  {school.status}
-                </Badge>
-              </Td>
-              <Td>
-                <TableRowActions
-                  onEdit={() => openEdit(school)}
-                  onDelete={() => setDeleteId(school.id)}
-                />
+          {pageSchools.length === 0 ? (
+            <tr>
+              <Td className="py-8 text-center text-slate-500" colSpan={8}>
+                No schools match your search.
               </Td>
             </tr>
-          ))}
+          ) : (
+            pageSchools.map((school) => (
+              <tr key={school.id}>
+                <Td className="font-medium text-slate-900 dark:text-slate-100">{school.name}</Td>
+                <Td>
+                  {school.district}
+                  <span className="text-slate-400"> · </span>
+                  {school.mandal}
+                </Td>
+                <Td>{school.principalName}</Td>
+                <Td>{school.contactNumber}</Td>
+                <Td>{school.studentCount}</Td>
+                <Td>{school.computerCount}</Td>
+                <Td>{school.teacherCount}</Td>
+                <Td>
+                  <TableRowActions
+                    onEdit={() => openEdit(school)}
+                    onDelete={() => setDeleteId(school.id)}
+                  />
+                </Td>
+              </tr>
+            ))
+          )}
         </DataTable>
 
         <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800">
@@ -660,7 +707,7 @@ export function AdminSchoolsPage() {
             </span>{' '}
             of{' '}
             <span className="font-medium text-slate-700 dark:text-slate-200">
-              {schoolList.length}
+              {filteredSchools.length}
             </span>{' '}
             schools
           </p>
@@ -806,9 +853,23 @@ export function AdminSchoolsPage() {
 
 export function AdminTeachersPage() {
   const [list, setList] = useState<TeacherProfile[]>(() => [...seedTeachers]);
+  const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<TeacherProfile | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', mobile: '', email: '', qualification: '' });
+
+  const filtered = list.filter((teacher) =>
+    matchesSearch(
+      search,
+      teacher.employeeId,
+      teacher.name,
+      teacher.mobile,
+      teacher.email,
+      teacher.qualification,
+      schoolById(teacher.schoolId)?.name,
+      teacher.assignedClasses.join(' '),
+    ),
+  );
 
   const openEdit = (teacher: TeacherProfile) => {
     setEditing(teacher);
@@ -843,7 +904,14 @@ export function AdminTeachersPage() {
     <AdminShell
       title="Teacher Management"
       description="Create logins, assign schools and classes, reset password, activate or deactivate access."
-      actions={<Button type="button" variant="primary">Add Teacher</Button>}
+      actions={
+        <>
+          <TableSearch value={search} onChange={setSearch} placeholder="Search teachers…" />
+          <Button type="button" variant="primary">
+            Add Teacher
+          </Button>
+        </>
+      }
     >
       <Card padding="none" className="overflow-hidden">
         <DataTable
@@ -859,28 +927,36 @@ export function AdminTeachersPage() {
             'Actions',
           ]}
         >
-          {list.map((teacher) => (
-            <tr key={teacher.id}>
-              <Td>{teacher.employeeId}</Td>
-              <Td className="font-medium text-slate-900 dark:text-slate-100">{teacher.name}</Td>
-              <Td>{teacher.mobile}</Td>
-              <Td>{teacher.email}</Td>
-              <Td>{teacher.qualification}</Td>
-              <Td>{schoolById(teacher.schoolId)?.name ?? '—'}</Td>
-              <Td>{teacher.assignedClasses.join(', ')}</Td>
-              <Td>
-                <Badge tone={teacher.active ? 'success' : 'danger'}>
-                  {teacher.active ? 'Active' : 'Inactive'}
-                </Badge>
-              </Td>
-              <Td>
-                <TableRowActions
-                  onEdit={() => openEdit(teacher)}
-                  onDelete={() => setDeleteId(teacher.id)}
-                />
+          {filtered.length === 0 ? (
+            <tr>
+              <Td className="py-8 text-center text-slate-500" colSpan={9}>
+                No teachers match your search.
               </Td>
             </tr>
-          ))}
+          ) : (
+            filtered.map((teacher) => (
+              <tr key={teacher.id}>
+                <Td>{teacher.employeeId}</Td>
+                <Td className="font-medium text-slate-900 dark:text-slate-100">{teacher.name}</Td>
+                <Td>{teacher.mobile}</Td>
+                <Td>{teacher.email}</Td>
+                <Td>{teacher.qualification}</Td>
+                <Td>{schoolById(teacher.schoolId)?.name ?? '—'}</Td>
+                <Td>{teacher.assignedClasses.join(', ')}</Td>
+                <Td>
+                  <Badge tone={teacher.active ? 'success' : 'danger'}>
+                    {teacher.active ? 'Active' : 'Inactive'}
+                  </Badge>
+                </Td>
+                <Td>
+                  <TableRowActions
+                    onEdit={() => openEdit(teacher)}
+                    onDelete={() => setDeleteId(teacher.id)}
+                  />
+                </Td>
+              </tr>
+            ))
+          )}
         </DataTable>
       </Card>
 
@@ -948,6 +1024,419 @@ export function AdminTeachersPage() {
   );
 }
 
+/** Sync schoolIds on each sponsor from school.sponsorId links */
+function rebuildSponsorSchools(
+  schoolList: School[],
+  sponsorList: SponsorProfile[],
+): SponsorProfile[] {
+  return sponsorList.map((sponsor) => ({
+    ...sponsor,
+    schoolIds: schoolList.filter((s) => s.sponsorId === sponsor.id).map((s) => s.id),
+  }));
+}
+
+const emptySponsorForm = {
+  name: '',
+  email: '',
+  phone: '',
+  organization: '',
+  address: '',
+};
+
+export function AdminSponsorsPage() {
+  const [schoolList, setSchoolList] = useState<School[]>(() => [...seedSchools]);
+  const [sponsorList, setSponsorList] = useState<SponsorProfile[]>(() =>
+    rebuildSponsorSchools(seedSchools, seedSponsors),
+  );
+  const [search, setSearch] = useState('');
+  const [assigning, setAssigning] = useState<School | null>(null);
+  const [selectedSponsorId, setSelectedSponsorId] = useState('');
+  const [sponsorModalOpen, setSponsorModalOpen] = useState(false);
+  const [editingSponsorId, setEditingSponsorId] = useState<string | null>(null);
+  const [deleteSponsorId, setDeleteSponsorId] = useState<string | null>(null);
+  const [sponsorForm, setSponsorForm] = useState(emptySponsorForm);
+
+  const unassignedCount = schoolList.filter((s) => !s.sponsorId).length;
+
+  const filteredSponsors = sponsorList.filter((sponsor) =>
+    matchesSearch(
+      search,
+      sponsor.name,
+      sponsor.email,
+      sponsor.phone,
+      sponsor.organization,
+      sponsor.address,
+      sponsor.schoolIds
+        .map((id) => schoolList.find((s) => s.id === id)?.name)
+        .join(' '),
+    ),
+  );
+
+  const filteredSchools = schoolList.filter((school) => {
+    const sponsor = school.sponsorId
+      ? sponsorList.find((s) => s.id === school.sponsorId)
+      : undefined;
+    return matchesSearch(
+      search,
+      school.name,
+      school.district,
+      school.mandal,
+      sponsor?.name,
+      sponsor?.organization,
+    );
+  });
+
+  const openAssign = (school: School) => {
+    setAssigning(school);
+    setSelectedSponsorId(school.sponsorId ?? '');
+  };
+
+  const closeAssign = () => {
+    setAssigning(null);
+    setSelectedSponsorId('');
+  };
+
+  const closeSponsorModal = () => {
+    setSponsorModalOpen(false);
+    setEditingSponsorId(null);
+    setSponsorForm(emptySponsorForm);
+  };
+
+  const openCreateSponsor = () => {
+    setEditingSponsorId(null);
+    setSponsorForm(emptySponsorForm);
+    setSponsorModalOpen(true);
+  };
+
+  const openEditSponsor = (sponsor: SponsorProfile) => {
+    setEditingSponsorId(sponsor.id);
+    setSponsorForm({
+      name: sponsor.name,
+      email: sponsor.email,
+      phone: sponsor.phone,
+      organization: sponsor.organization,
+      address: sponsor.address,
+    });
+    setSponsorModalOpen(true);
+  };
+
+  const setSponsorField = (key: keyof typeof emptySponsorForm, value: string) => {
+    setSponsorForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleSponsorSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    const fields = {
+      name: sponsorForm.name.trim(),
+      email: sponsorForm.email.trim(),
+      phone: sponsorForm.phone.trim(),
+      organization: sponsorForm.organization.trim(),
+      address: sponsorForm.address.trim(),
+    };
+
+    if (editingSponsorId) {
+      setSponsorList((prev) =>
+        prev.map((s) => (s.id === editingSponsorId ? { ...s, ...fields } : s)),
+      );
+    } else {
+      const next: SponsorProfile = {
+        id: `usr_sponsor_${Date.now()}`,
+        ...fields,
+        active: true,
+        schoolIds: [],
+      };
+      setSponsorList((prev) => [next, ...prev]);
+    }
+    closeSponsorModal();
+  };
+
+  const applySponsor = (e: FormEvent) => {
+    e.preventDefault();
+    if (!assigning) return;
+    const nextSponsorId = selectedSponsorId || undefined;
+
+    setSchoolList((prev) => {
+      const nextSchools = prev.map((s) =>
+        s.id === assigning.id ? { ...s, sponsorId: nextSponsorId } : s,
+      );
+      setSponsorList((prevSponsors) => rebuildSponsorSchools(nextSchools, prevSponsors));
+      return nextSchools;
+    });
+    closeAssign();
+  };
+
+  const confirmDeleteSponsor = () => {
+    if (!deleteSponsorId) return;
+    const id = deleteSponsorId;
+    setSchoolList((prev) => {
+      const nextSchools = prev.map((s) =>
+        s.sponsorId === id ? { ...s, sponsorId: undefined } : s,
+      );
+      setSponsorList((prevSponsors) =>
+        rebuildSponsorSchools(
+          nextSchools,
+          prevSponsors.filter((s) => s.id !== id),
+        ),
+      );
+      return nextSchools;
+    });
+    setDeleteSponsorId(null);
+  };
+
+  return (
+    <AdminShell
+      title="Assign Sponsor"
+      description="Map donors and sponsors to schools so they can view assigned schools in read-only portal access (BRD: Assign the sponsor)."
+      eyebrow={false}
+      actions={
+        <>
+          <TableSearch value={search} onChange={setSearch} placeholder="Search…" />
+          <Button type="button" variant="primary" onClick={openCreateSponsor}>
+            Add Sponsor
+          </Button>
+        </>
+      }
+    >
+      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+        <StatCard label="Sponsors" value={sponsorList.length} hint="Active accounts" />
+        <StatCard
+          label="Assigned schools"
+          value={schoolList.filter((s) => s.sponsorId).length}
+          hint={`of ${schoolList.length} schools`}
+        />
+        <StatCard
+          label="Unassigned"
+          value={unassignedCount}
+          hint="Need a sponsor"
+          accent={unassignedCount > 0 ? 'amber' : 'emerald'}
+        />
+      </div>
+
+      <div className="mb-6">
+        <SectionTitle>Sponsors</SectionTitle>
+        <Card padding="none" className="mt-3 overflow-hidden">
+          <DataTable
+            headers={[
+              'Sponsor',
+              'Organization',
+              'Contact',
+              'Address',
+              'Schools',
+              'Status',
+              'Actions',
+            ]}
+          >
+            {filteredSponsors.length === 0 ? (
+              <tr>
+                <Td className="py-8 text-center text-slate-500" colSpan={7}>
+                  No sponsors match your search.
+                </Td>
+              </tr>
+            ) : (
+              filteredSponsors.map((sponsor) => (
+                <tr key={sponsor.id}>
+                  <Td>
+                    <p className="font-medium text-slate-900 dark:text-slate-100">{sponsor.name}</p>
+                    <p className="text-xs text-slate-500">{sponsor.email}</p>
+                  </Td>
+                  <Td>{sponsor.organization}</Td>
+                  <Td>{sponsor.phone}</Td>
+                  <Td className="max-w-[14rem]">
+                    <span className="line-clamp-2 text-sm">{sponsor.address || '—'}</span>
+                  </Td>
+                  <Td>
+                    {sponsor.schoolIds.length === 0
+                      ? '—'
+                      : sponsor.schoolIds
+                          .map((id) => schoolList.find((s) => s.id === id)?.name ?? id)
+                          .join(', ')}
+                  </Td>
+                  <Td>
+                    <Badge tone={sponsor.active ? 'success' : 'neutral'}>
+                      {sponsor.active ? 'Active' : 'Inactive'}
+                    </Badge>
+                  </Td>
+                  <Td>
+                    <TableRowActions
+                      onEdit={() => openEditSponsor(sponsor)}
+                      onDelete={() => setDeleteSponsorId(sponsor.id)}
+                    />
+                  </Td>
+                </tr>
+              ))
+            )}
+          </DataTable>
+        </Card>
+      </div>
+
+      <SectionTitle>School–sponsor assignments</SectionTitle>
+      <Card padding="none" className="mt-3 overflow-hidden">
+        <DataTable headers={['School', 'District / Mandal', 'Assigned sponsor', 'Actions']}>
+          {filteredSchools.length === 0 ? (
+            <tr>
+              <Td className="py-8 text-center text-slate-500" colSpan={4}>
+                No schools match your search.
+              </Td>
+            </tr>
+          ) : (
+            filteredSchools.map((school) => {
+              const sponsor = school.sponsorId
+                ? sponsorList.find((s) => s.id === school.sponsorId)
+                : undefined;
+              return (
+                <tr key={school.id}>
+                  <Td className="font-medium text-slate-900 dark:text-slate-100">{school.name}</Td>
+                  <Td>
+                    {school.district}
+                    <span className="text-slate-400"> · </span>
+                    {school.mandal}
+                  </Td>
+                  <Td>
+                    {sponsor ? (
+                      <div>
+                        <p className="font-medium text-slate-800 dark:text-slate-100">
+                          {sponsor.name}
+                        </p>
+                        <p className="text-xs text-slate-500">{sponsor.organization}</p>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-slate-400">Not assigned</span>
+                    )}
+                  </Td>
+                  <Td>
+                    <TableRowActions
+                      onAssign={() => openAssign(school)}
+                      assignLabel={sponsor ? 'Change sponsor' : 'Assign sponsor'}
+                      assignVariant={sponsor ? 'change' : 'add'}
+                    />
+                  </Td>
+                </tr>
+              );
+            })
+          )}
+        </DataTable>
+      </Card>
+
+      <Modal
+        open={sponsorModalOpen}
+        onClose={closeSponsorModal}
+        title={editingSponsorId ? 'Edit Sponsor' : 'Add Sponsor'}
+        description={
+          editingSponsorId
+            ? 'Update sponsor profile details for school assignment.'
+            : 'Enter sponsor details to add them to the trust network.'
+        }
+      >
+        <form onSubmit={handleSponsorSubmit} className="px-5 py-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <FormField id="sponsor-name" label="Sponsor name" required>
+                <Input
+                  value={sponsorForm.name}
+                  onChange={(e) => setSponsorField('name', e.target.value)}
+                  placeholder="e.g. Ananya Mehta"
+                  required
+                />
+              </FormField>
+            </div>
+            <FormField id="sponsor-org" label="Organization" required>
+              <Input
+                value={sponsorForm.organization}
+                onChange={(e) => setSponsorField('organization', e.target.value)}
+                placeholder="Organization or foundation"
+                required
+              />
+            </FormField>
+            <FormField id="sponsor-phone" label="Phone" required>
+              <Input
+                value={sponsorForm.phone}
+                onChange={(e) => setSponsorField('phone', e.target.value)}
+                placeholder="10-digit mobile"
+                required
+              />
+            </FormField>
+            <div className="sm:col-span-2">
+              <FormField id="sponsor-email" label="Email" required>
+                <Input
+                  type="email"
+                  value={sponsorForm.email}
+                  onChange={(e) => setSponsorField('email', e.target.value)}
+                  placeholder="sponsor@example.org"
+                  required
+                />
+              </FormField>
+            </div>
+            <div className="sm:col-span-2">
+              <FormField id="sponsor-address" label="Address" required>
+                <Input
+                  value={sponsorForm.address}
+                  onChange={(e) => setSponsorField('address', e.target.value)}
+                  placeholder="Street, city, state, PIN"
+                  required
+                />
+              </FormField>
+            </div>
+          </div>
+          <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+            <Button type="button" variant="ghost" onClick={closeSponsorModal}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary">
+              {editingSponsorId ? 'Update Sponsor' : 'Save Sponsor'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(assigning)}
+        onClose={closeAssign}
+        title="Assign sponsor"
+        description={
+          assigning
+            ? `Select a sponsor for ${assigning.name}.`
+            : 'Select a sponsor for this school.'
+        }
+      >
+        <form onSubmit={applySponsor} className="px-5 py-4">
+          <FormField id="assign-sponsor" label="Sponsor">
+            <select
+              className="field-control w-full"
+              value={selectedSponsorId}
+              onChange={(e) => setSelectedSponsorId(e.target.value)}
+            >
+              <option value="">Unassigned</option>
+              {sponsorList
+                .filter((s) => s.active)
+                .map((sponsor) => (
+                  <option key={sponsor.id} value={sponsor.id}>
+                    {sponsor.name} — {sponsor.organization}
+                  </option>
+                ))}
+            </select>
+          </FormField>
+          <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+            <Button type="button" variant="ghost" onClick={closeAssign}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary">
+              Save assignment
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <ConfirmDialog
+        open={Boolean(deleteSponsorId)}
+        title="Delete sponsor"
+        description="This sponsor will be removed and unassigned from any linked schools."
+        onClose={() => setDeleteSponsorId(null)}
+        onConfirm={confirmDeleteSponsor}
+      />
+    </AdminShell>
+  );
+}
+
 type AttendanceRow = {
   id: string;
   teacher: string;
@@ -984,6 +1473,7 @@ const seedTeacherAttendance: AttendanceRow[] = [
 
 export function AdminTeacherAttendancePage() {
   const [list, setList] = useState<AttendanceRow[]>(() => [...seedTeacherAttendance]);
+  const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<AttendanceRow | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -993,6 +1483,19 @@ export function AdminTeacherAttendancePage() {
     clockOut: '',
     hours: '',
   });
+
+  const filtered = list.filter((row) =>
+    matchesSearch(
+      search,
+      row.teacher,
+      row.school,
+      row.clockIn,
+      row.clockOut,
+      row.inLocation,
+      row.outLocation,
+      row.hours,
+    ),
+  );
 
   const openEdit = (row: AttendanceRow) => {
     setEditing(row);
@@ -1029,6 +1532,9 @@ export function AdminTeacherAttendancePage() {
     <AdminShell
       title="Teacher Attendance Monitoring"
       description="Clock-in / clock-out times and GPS, working hours, daily and monthly history."
+      actions={
+        <TableSearch value={search} onChange={setSearch} placeholder="Search attendance…" />
+      }
     >
       <Card className="mb-4">
         <div className="flex flex-wrap gap-3">
@@ -1064,23 +1570,31 @@ export function AdminTeacherAttendancePage() {
             'Actions',
           ]}
         >
-          {list.map((row) => (
-            <tr key={row.id}>
-              <Td className="font-medium text-slate-900 dark:text-slate-100">{row.teacher}</Td>
-              <Td>{row.school}</Td>
-              <Td>{row.clockIn}</Td>
-              <Td>{row.inLocation}</Td>
-              <Td>{row.clockOut}</Td>
-              <Td>{row.outLocation}</Td>
-              <Td>{row.hours}</Td>
-              <Td>
-                <TableRowActions
-                  onEdit={() => openEdit(row)}
-                  onDelete={() => setDeleteId(row.id)}
-                />
+          {filtered.length === 0 ? (
+            <tr>
+              <Td className="py-8 text-center text-slate-500" colSpan={8}>
+                No attendance records match your search.
               </Td>
             </tr>
-          ))}
+          ) : (
+            filtered.map((row) => (
+              <tr key={row.id}>
+                <Td className="font-medium text-slate-900 dark:text-slate-100">{row.teacher}</Td>
+                <Td>{row.school}</Td>
+                <Td>{row.clockIn}</Td>
+                <Td>{row.inLocation}</Td>
+                <Td>{row.clockOut}</Td>
+                <Td>{row.outLocation}</Td>
+                <Td>{row.hours}</Td>
+                <Td>
+                  <TableRowActions
+                    onEdit={() => openEdit(row)}
+                    onDelete={() => setDeleteId(row.id)}
+                  />
+                </Td>
+              </tr>
+            ))
+          )}
         </DataTable>
       </Card>
 
@@ -1152,6 +1666,7 @@ export function AdminTeacherAttendancePage() {
 
 export function AdminLeavesPage() {
   const [list, setList] = useState<LeaveRequest[]>(() => [...seedLeaves]);
+  const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<LeaveRequest | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -1160,6 +1675,18 @@ export function AdminLeavesPage() {
     toDate: '',
     reason: '',
   });
+
+  const filtered = list.filter((leave) =>
+    matchesSearch(
+      search,
+      leave.teacherName,
+      leave.type,
+      leave.fromDate,
+      leave.toDate,
+      leave.reason,
+      leave.status,
+    ),
+  );
 
   const openEdit = (leave: LeaveRequest) => {
     setEditing(leave);
@@ -1198,59 +1725,60 @@ export function AdminLeavesPage() {
     <AdminShell
       title="Teacher Leave Management"
       description="View leave requests, approve or reject, track balance and history."
+      actions={<TableSearch value={search} onChange={setSearch} placeholder="Search leaves…" />}
     >
       <Card padding="none" className="overflow-hidden">
         <DataTable
           headers={['Teacher', 'Type', 'From', 'To', 'Reason', 'Status', 'Review', 'Actions']}
         >
-          {list.map((leave) => (
-            <tr key={leave.id}>
-              <Td className="font-medium text-slate-900 dark:text-slate-100">
-                {leave.teacherName}
-              </Td>
-              <Td>{leave.type}</Td>
-              <Td>{leave.fromDate}</Td>
-              <Td>{leave.toDate}</Td>
-              <Td>{leave.reason}</Td>
-              <Td>
-                <Badge
-                  tone={
-                    leave.status === 'Approved'
-                      ? 'success'
-                      : leave.status === 'Rejected'
-                        ? 'danger'
-                        : 'warning'
-                  }
-                >
-                  {leave.status}
-                </Badge>
-              </Td>
-              <Td>
-                {leave.status === 'Pending' ? (
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="button" variant="primary" onClick={() => setStatus(leave.id, 'Approved')}>
-                      Approve
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      onClick={() => setStatus(leave.id, 'Rejected')}
-                    >
-                      Reject
-                    </Button>
-                  </div>
-                ) : (
-                  '—'
-                )}
-              </Td>
-              <Td>
-                <TableRowActions
-                  onEdit={() => openEdit(leave)}
-                  onDelete={() => setDeleteId(leave.id)}
-                />
+          {filtered.length === 0 ? (
+            <tr>
+              <Td className="py-8 text-center text-slate-500" colSpan={8}>
+                No leave requests match your search.
               </Td>
             </tr>
-          ))}
+          ) : (
+            filtered.map((leave) => (
+              <tr key={leave.id}>
+                <Td className="font-medium text-slate-900 dark:text-slate-100">
+                  {leave.teacherName}
+                </Td>
+                <Td>{leave.type}</Td>
+                <Td>{leave.fromDate}</Td>
+                <Td>{leave.toDate}</Td>
+                <Td>{leave.reason}</Td>
+                <Td>
+                  <Badge
+                    tone={
+                      leave.status === 'Approved'
+                        ? 'success'
+                        : leave.status === 'Rejected'
+                          ? 'danger'
+                          : 'warning'
+                    }
+                  >
+                    {leave.status}
+                  </Badge>
+                </Td>
+                <Td>
+                  {leave.status === 'Pending' ? (
+                    <LeaveReviewActions
+                      onApprove={() => setStatus(leave.id, 'Approved')}
+                      onReject={() => setStatus(leave.id, 'Rejected')}
+                    />
+                  ) : (
+                    '—'
+                  )}
+                </Td>
+                <Td>
+                  <TableRowActions
+                    onEdit={() => openEdit(leave)}
+                    onDelete={() => setDeleteId(leave.id)}
+                  />
+                </Td>
+              </tr>
+            ))
+          )}
         </DataTable>
       </Card>
 
@@ -1320,9 +1848,20 @@ export function AdminLeavesPage() {
 
 export function AdminStudentAttendancePage() {
   const [list, setList] = useState<Student[]>(() => [...seedStudents]);
+  const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Student | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', classGrade: '', section: '' });
+
+  const filtered = list.filter((student) =>
+    matchesSearch(
+      search,
+      student.studentId,
+      student.name,
+      student.classGrade,
+      student.section,
+    ),
+  );
 
   const openEdit = (student: Student) => {
     setEditing(student);
@@ -1355,6 +1894,9 @@ export function AdminStudentAttendancePage() {
     <AdminShell
       title="Student Attendance Monitoring"
       description="School-wise, class-wise, daily and monthly attendance with filters."
+      actions={
+        <TableSearch value={search} onChange={setSearch} placeholder="Search students…" />
+      }
     >
       <Card className="mb-4">
         <div className="flex flex-wrap gap-3">
@@ -1380,23 +1922,31 @@ export function AdminStudentAttendancePage() {
       </div>
       <Card padding="none" className="overflow-hidden">
         <DataTable headers={['Student ID', 'Name', 'Class', 'Section', 'Status', 'Actions']}>
-          {list.map((student) => (
-            <tr key={student.id}>
-              <Td>{student.studentId}</Td>
-              <Td className="font-medium text-slate-900 dark:text-slate-100">{student.name}</Td>
-              <Td>{student.classGrade}</Td>
-              <Td>{student.section}</Td>
-              <Td>
-                <Badge tone="success">Present</Badge>
-              </Td>
-              <Td>
-                <TableRowActions
-                  onEdit={() => openEdit(student)}
-                  onDelete={() => setDeleteId(student.id)}
-                />
+          {filtered.length === 0 ? (
+            <tr>
+              <Td className="py-8 text-center text-slate-500" colSpan={6}>
+                No students match your search.
               </Td>
             </tr>
-          ))}
+          ) : (
+            filtered.map((student) => (
+              <tr key={student.id}>
+                <Td>{student.studentId}</Td>
+                <Td className="font-medium text-slate-900 dark:text-slate-100">{student.name}</Td>
+                <Td>{student.classGrade}</Td>
+                <Td>{student.section}</Td>
+                <Td>
+                  <Badge tone="success">Present</Badge>
+                </Td>
+                <Td>
+                  <TableRowActions
+                    onEdit={() => openEdit(student)}
+                    onDelete={() => setDeleteId(student.id)}
+                  />
+                </Td>
+              </tr>
+            ))
+          )}
         </DataTable>
       </Card>
 
@@ -1488,9 +2038,22 @@ const seedSyllabusRows: SyllabusRow[] = [
 
 export function AdminSyllabusPage() {
   const [list, setList] = useState<SyllabusRow[]>(() => [...seedSyllabusRows]);
+  const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<SyllabusRow | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState({ topic: '', completed: '', remaining: '' });
+
+  const filtered = list.filter((row) =>
+    matchesSearch(
+      search,
+      row.school,
+      row.teacher,
+      row.classLabel,
+      row.topic,
+      row.completed,
+      row.remaining,
+    ),
+  );
 
   const openEdit = (row: SyllabusRow) => {
     setEditing(row);
@@ -1519,6 +2082,9 @@ export function AdminSyllabusPage() {
     <AdminShell
       title="Syllabus Monitoring"
       description="Track today’s topic, completed and remaining topics by school and teacher."
+      actions={
+        <TableSearch value={search} onChange={setSearch} placeholder="Search syllabus…" />
+      }
     >
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
         <StatCard label="Overall Completion" value="72%" />
@@ -1537,22 +2103,30 @@ export function AdminSyllabusPage() {
             'Actions',
           ]}
         >
-          {list.map((row) => (
-            <tr key={row.id}>
-              <Td>{row.school}</Td>
-              <Td>{row.teacher}</Td>
-              <Td>{row.classLabel}</Td>
-              <Td>{row.topic}</Td>
-              <Td>{row.completed}</Td>
-              <Td>{row.remaining}</Td>
-              <Td>
-                <TableRowActions
-                  onEdit={() => openEdit(row)}
-                  onDelete={() => setDeleteId(row.id)}
-                />
+          {filtered.length === 0 ? (
+            <tr>
+              <Td className="py-8 text-center text-slate-500" colSpan={7}>
+                No syllabus rows match your search.
               </Td>
             </tr>
-          ))}
+          ) : (
+            filtered.map((row) => (
+              <tr key={row.id}>
+                <Td>{row.school}</Td>
+                <Td>{row.teacher}</Td>
+                <Td>{row.classLabel}</Td>
+                <Td>{row.topic}</Td>
+                <Td>{row.completed}</Td>
+                <Td>{row.remaining}</Td>
+                <Td>
+                  <TableRowActions
+                    onEdit={() => openEdit(row)}
+                    onDelete={() => setDeleteId(row.id)}
+                  />
+                </Td>
+              </tr>
+            ))
+          )}
         </DataTable>
       </Card>
 
@@ -1609,6 +2183,7 @@ export function AdminSyllabusPage() {
 
 export function AdminAssetsPage() {
   const [list, setList] = useState<Asset[]>(() => [...seedAssets]);
+  const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Asset | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -1616,6 +2191,18 @@ export function AdminAssetsPage() {
     workingStatus: 'Working' as Asset['workingStatus'],
     warranty: '',
   });
+
+  const filtered = list.filter((asset) =>
+    matchesSearch(
+      search,
+      asset.type,
+      asset.quantity,
+      asset.workingStatus,
+      asset.purchaseDate,
+      asset.warranty,
+      schoolById(asset.schoolId)?.name,
+    ),
+  );
 
   const openEdit = (asset: Asset) => {
     setEditing(asset);
@@ -1648,7 +2235,14 @@ export function AdminAssetsPage() {
     <AdminShell
       title="Asset Management"
       description="Computers, CPU, monitor, keyboard, mouse, UPS — quantity, status, warranty, school."
-      actions={<Button type="button" variant="primary">Add Asset</Button>}
+      actions={
+        <>
+          <TableSearch value={search} onChange={setSearch} placeholder="Search assets…" />
+          <Button type="button" variant="primary">
+            Add Asset
+          </Button>
+        </>
+      }
     >
       <Card padding="none" className="overflow-hidden">
         <DataTable
@@ -1662,34 +2256,42 @@ export function AdminAssetsPage() {
             'Actions',
           ]}
         >
-          {list.map((asset) => (
-            <tr key={asset.id}>
-              <Td className="font-medium text-slate-900 dark:text-slate-100">{asset.type}</Td>
-              <Td>{asset.quantity}</Td>
-              <Td>
-                <Badge
-                  tone={
-                    asset.workingStatus === 'Working'
-                      ? 'success'
-                      : asset.workingStatus === 'Needs Repair'
-                        ? 'warning'
-                        : 'danger'
-                  }
-                >
-                  {asset.workingStatus}
-                </Badge>
-              </Td>
-              <Td>{asset.purchaseDate}</Td>
-              <Td>{asset.warranty}</Td>
-              <Td>{schoolById(asset.schoolId)?.name}</Td>
-              <Td>
-                <TableRowActions
-                  onEdit={() => openEdit(asset)}
-                  onDelete={() => setDeleteId(asset.id)}
-                />
+          {filtered.length === 0 ? (
+            <tr>
+              <Td className="py-8 text-center text-slate-500" colSpan={7}>
+                No assets match your search.
               </Td>
             </tr>
-          ))}
+          ) : (
+            filtered.map((asset) => (
+              <tr key={asset.id}>
+                <Td className="font-medium text-slate-900 dark:text-slate-100">{asset.type}</Td>
+                <Td>{asset.quantity}</Td>
+                <Td>
+                  <Badge
+                    tone={
+                      asset.workingStatus === 'Working'
+                        ? 'success'
+                        : asset.workingStatus === 'Needs Repair'
+                          ? 'warning'
+                          : 'danger'
+                    }
+                  >
+                    {asset.workingStatus}
+                  </Badge>
+                </Td>
+                <Td>{asset.purchaseDate}</Td>
+                <Td>{asset.warranty}</Td>
+                <Td>{schoolById(asset.schoolId)?.name}</Td>
+                <Td>
+                  <TableRowActions
+                    onEdit={() => openEdit(asset)}
+                    onDelete={() => setDeleteId(asset.id)}
+                  />
+                </Td>
+              </tr>
+            ))
+          )}
         </DataTable>
       </Card>
 
@@ -1760,12 +2362,26 @@ export function AdminAssetsPage() {
 
 export function AdminTicketsPage() {
   const [list, setList] = useState<SupportTicket[]>(() => [...seedTickets]);
+  const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<SupportTicket | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState({
     description: '',
     status: 'Open' as SupportTicket['status'],
   });
+
+  const filtered = list.filter((ticket) =>
+    matchesSearch(
+      search,
+      ticket.id,
+      ticket.type,
+      schoolById(ticket.schoolId)?.name,
+      ticket.raisedBy,
+      ticket.description,
+      ticket.status,
+      ticket.createdAt,
+    ),
+  );
 
   const openEdit = (ticket: SupportTicket) => {
     setEditing(ticket);
@@ -1789,42 +2405,53 @@ export function AdminTicketsPage() {
     <AdminShell
       title="Support Ticket Management"
       description="View, assign, update status and close tickets (Hardware, Software, Internet, Power, Others)."
+      actions={
+        <TableSearch value={search} onChange={setSearch} placeholder="Search tickets…" />
+      }
     >
       <Card padding="none" className="overflow-hidden">
         <DataTable
           headers={['Ticket', 'Type', 'School', 'Raised by', 'Description', 'Status', 'Date', 'Actions']}
         >
-          {list.map((ticket) => (
-            <tr key={ticket.id}>
-              <Td className="font-medium text-slate-900 dark:text-slate-100">
-                {ticket.id.toUpperCase()}
-              </Td>
-              <Td>{ticket.type}</Td>
-              <Td>{schoolById(ticket.schoolId)?.name}</Td>
-              <Td>{ticket.raisedBy}</Td>
-              <Td className="max-w-xs">{ticket.description}</Td>
-              <Td>
-                <Badge
-                  tone={
-                    ticket.status === 'Resolved' || ticket.status === 'Closed'
-                      ? 'success'
-                      : ticket.status === 'Open'
-                        ? 'danger'
-                        : 'warning'
-                  }
-                >
-                  {ticket.status}
-                </Badge>
-              </Td>
-              <Td>{ticket.createdAt}</Td>
-              <Td>
-                <TableRowActions
-                  onEdit={() => openEdit(ticket)}
-                  onDelete={() => setDeleteId(ticket.id)}
-                />
+          {filtered.length === 0 ? (
+            <tr>
+              <Td className="py-8 text-center text-slate-500" colSpan={8}>
+                No tickets match your search.
               </Td>
             </tr>
-          ))}
+          ) : (
+            filtered.map((ticket) => (
+              <tr key={ticket.id}>
+                <Td className="font-medium text-slate-900 dark:text-slate-100">
+                  {ticket.id.toUpperCase()}
+                </Td>
+                <Td>{ticket.type}</Td>
+                <Td>{schoolById(ticket.schoolId)?.name}</Td>
+                <Td>{ticket.raisedBy}</Td>
+                <Td className="max-w-xs">{ticket.description}</Td>
+                <Td>
+                  <Badge
+                    tone={
+                      ticket.status === 'Resolved' || ticket.status === 'Closed'
+                        ? 'success'
+                        : ticket.status === 'Open'
+                          ? 'danger'
+                          : 'warning'
+                    }
+                  >
+                    {ticket.status}
+                  </Badge>
+                </Td>
+                <Td>{ticket.createdAt}</Td>
+                <Td>
+                  <TableRowActions
+                    onEdit={() => openEdit(ticket)}
+                    onDelete={() => setDeleteId(ticket.id)}
+                  />
+                </Td>
+              </tr>
+            ))
+          )}
         </DataTable>
       </Card>
 
@@ -1887,9 +2514,20 @@ export function AdminTicketsPage() {
 
 export function AdminEventsPage() {
   const [list, setList] = useState<EventItem[]>(() => [...seedEvents]);
+  const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<EventItem | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', date: '', description: '' });
+
+  const filtered = list.filter((event) =>
+    matchesSearch(
+      search,
+      event.name,
+      event.date,
+      event.description,
+      schoolById(event.schoolId)?.name,
+    ),
+  );
 
   const openEdit = (event: EventItem) => {
     setEditing(event);
@@ -1918,10 +2556,20 @@ export function AdminEventsPage() {
     <AdminShell
       title="Event Gallery"
       description="Upload, view and delete school event images with name, date and description."
-      actions={<Button type="button" variant="primary">Upload Images</Button>}
+      actions={
+        <>
+          <TableSearch value={search} onChange={setSearch} placeholder="Search events…" />
+          <Button type="button" variant="primary">
+            Upload Images
+          </Button>
+        </>
+      }
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        {list.map((event) => (
+        {filtered.length === 0 ? (
+          <p className="text-sm text-slate-500 sm:col-span-2">No events match your search.</p>
+        ) : (
+          filtered.map((event) => (
           <Card key={event.id}>
             <div className="mb-3 h-36 rounded-lg bg-gradient-to-br from-orange-100 via-slate-100 to-sky-100" />
             <div className="flex items-start justify-between gap-2">
@@ -1941,7 +2589,8 @@ export function AdminEventsPage() {
             <p className="mt-1 text-xs text-slate-400">{event.date}</p>
             <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{event.description}</p>
           </Card>
-        ))}
+          ))
+        )}
       </div>
 
       <Modal

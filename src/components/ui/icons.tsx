@@ -156,6 +156,12 @@ export const IconCheck = icon(
   </>,
 );
 
+export const IconX = icon(
+  <>
+    <path d="M18 6 6 18M6 6l12 12" />
+  </>,
+);
+
 export const IconMapPin = icon(
   <>
     <path d="M12 21s7-5.2 7-11a7 7 0 1 0-14 0c0 5.8 7 11 7 11Z" />
@@ -192,6 +198,14 @@ export const IconUser = icon(
   <>
     <circle cx="12" cy="8" r="4" />
     <path d="M4 20a8 8 0 0 1 16 0" />
+  </>,
+);
+
+export const IconUserPlus = icon(
+  <>
+    <circle cx="9" cy="8" r="3.5" />
+    <path d="M2 20a7 7 0 0 1 14 0" />
+    <path d="M19 8v6M16 11h6" />
   </>,
 );
 
