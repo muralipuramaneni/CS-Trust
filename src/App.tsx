@@ -11,6 +11,7 @@ import {
   AdminLeavesPage,
   AdminReportsPage,
   AdminSchoolsPage,
+  AdminSponsorsPage,
   AdminStudentAttendancePage,
   AdminSyllabusPage,
   AdminTeacherAttendancePage,
@@ -69,6 +70,14 @@ export default function App() {
         element={
           <RoleRoute allow={['admin']}>
             <AdminTeachersPage />
+          </RoleRoute>
+        }
+      />
+      <Route
+        path="/admin/sponsors"
+        element={
+          <RoleRoute allow={['admin']}>
+            <AdminSponsorsPage />
           </RoleRoute>
         }
       />

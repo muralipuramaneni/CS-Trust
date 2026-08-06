@@ -12,6 +12,7 @@ import {
   IconLayout,
   IconSchool,
   IconTicket,
+  IconUser,
   IconUsers,
 } from '../components/ui/icons';
 
@@ -27,6 +28,12 @@ export const adminNav: NavItem[] = [
   { label: 'Dashboard', path: '/admin', icon: IconLayout, group: 'Overview' },
   { label: 'Schools', path: '/admin/schools', icon: IconSchool, group: 'People & Places' },
   { label: 'Teachers', path: '/admin/teachers', icon: IconUsers, group: 'People & Places' },
+  {
+    label: 'Assign Sponsor',
+    path: '/admin/sponsors',
+    icon: IconUser,
+    group: 'People & Places',
+  },
   {
     label: 'Teacher Attendance',
     path: '/admin/teacher-attendance',

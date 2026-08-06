@@ -4,6 +4,7 @@ import type {
   EventItem,
   LeaveRequest,
   School,
+  SponsorProfile,
   Student,
   SupportTicket,
   TeacherProfile,
@@ -53,6 +54,7 @@ export const schools: School[] = [
     teacherCount: 2,
     status: 'active',
     syllabusCompletion: 81,
+    sponsorId: 'usr_sponsor_02',
   },
   {
     id: 'sch_04',
@@ -79,7 +81,7 @@ export const schools: School[] = [
     studentCount: 124,
     computerCount: 10,
     teacherCount: 1,
-    status: 'disabled',
+    status: 'active',
     syllabusCompletion: 58,
   },
   {
@@ -121,7 +123,7 @@ export const schools: School[] = [
     studentCount: 138,
     computerCount: 11,
     teacherCount: 1,
-    status: 'disabled',
+    status: 'active',
     syllabusCompletion: 42,
   },
   {
@@ -355,8 +357,45 @@ export const recentActivities: ActivityItem[] = [
   { id: 'act_4', text: 'Syllabus progress updated for Class 8', time: 'Yesterday' },
 ];
 
+export const sponsors: SponsorProfile[] = [
+  {
+    id: 'usr_sponsor_01',
+    name: 'Donor Sponsor',
+    email: 'sponsor@chaitanyasaradhi.org',
+    phone: '9876543230',
+    organization: 'Community Impact Foundation',
+    address: '12 MG Road, Hyderabad, Telangana 500001',
+    active: true,
+    schoolIds: ['sch_01', 'sch_02'],
+  },
+  {
+    id: 'usr_sponsor_02',
+    name: 'Ananya Mehta',
+    email: 'ananya.mehta@example.org',
+    phone: '9876543231',
+    organization: 'AP Education Partners',
+    address: '45 Beach Road, Visakhapatnam, Andhra Pradesh 530003',
+    active: true,
+    schoolIds: ['sch_03'],
+  },
+  {
+    id: 'usr_sponsor_03',
+    name: 'Vikram Reddy',
+    email: 'vikram.reddy@example.org',
+    phone: '9876543232',
+    organization: 'Rural Labs Trust',
+    address: '8 Temple Street, Guntur, Andhra Pradesh 522001',
+    active: true,
+    schoolIds: [],
+  },
+];
+
 export function schoolById(id: string) {
   return schools.find((s) => s.id === id);
+}
+
+export function sponsorById(id: string) {
+  return sponsors.find((s) => s.id === id);
 }
 
 export function teachersBySchool(schoolId: string) {

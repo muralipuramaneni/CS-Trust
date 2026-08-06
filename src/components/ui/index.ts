@@ -9,4 +9,5 @@ export { Spinner, LoadingScreen, InlineLoader } from './Spinner';
 export { ThemeToggle } from './ThemeToggle';
 export { Modal } from './Modal';
 export { ConfirmDialog } from './ConfirmDialog';
-export { TableRowActions } from './TableRowActions';
+export { TableRowActions, IconActionButton, LeaveReviewActions } from './TableRowActions';
+export { TableSearch, matchesSearch } from './TableSearch';

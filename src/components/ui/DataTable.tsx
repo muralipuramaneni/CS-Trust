@@ -42,12 +42,15 @@ export function DataTable({
 export function Td({
   children,
   className,
+  colSpan,
 }: {
   children: ReactNode;
   className?: string;
+  colSpan?: number;
 }) {
   return (
     <td
+      colSpan={colSpan}
       className={cn(
         'border-0 px-4 py-3.5 text-slate-600 transition-colors dark:text-slate-300',
         className,
