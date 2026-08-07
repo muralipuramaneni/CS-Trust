@@ -13,7 +13,6 @@ export function SignupPage() {
 
   return (
     <AuthLayout
-      eyebrow="Join the portal"
       title="Create your account"
       subtitle="Register to access programs, schools, and impact tools for Chaitanya Saradhi."
     >

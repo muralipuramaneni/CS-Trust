@@ -9,7 +9,7 @@ export interface School {
   studentCount: number;
   computerCount: number;
   teacherCount: number;
-  status: 'active';
+  status: 'active' | 'disabled';
   syllabusCompletion: number;
   sponsorId?: string;
 }

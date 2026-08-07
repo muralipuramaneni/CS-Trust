@@ -15,7 +15,8 @@ const sizeClasses = {
   sm: 'h-10 w-10',
   md: 'h-11 w-11',
   lg: 'h-14 w-14',
-  form: 'h-16 w-16 max-h-16 max-w-16',
+  /** Auth screens (login / signup / forgot) — corner mark */
+  form: 'h-20 w-20 max-h-20 max-w-20 sm:h-[5.25rem] sm:w-[5.25rem] sm:max-h-[5.25rem] sm:max-w-[5.25rem]',
 } as const;
 
 const nameSizeClasses = {

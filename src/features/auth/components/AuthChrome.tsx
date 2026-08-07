@@ -26,7 +26,7 @@ export function AuthTextLink({
   );
 }
 
-/** Peach/orange outlined pill — attachment “Create account” */
+/** Peach/orange outlined pill — e.g. “Sign in” */
 export function AuthPillLink({
   to,
   children,
@@ -50,7 +50,7 @@ export function AuthPillLink({
   );
 }
 
-/** Attachment action row: space-between (Forgot left · Create account right) */
+/** Attachment action row (e.g. Forgot password / Back to sign in) */
 export function AuthActionsRow({
   children,
   className,

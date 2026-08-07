@@ -4,8 +4,8 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-display: "Sora", "Segoe UI", sans-serif;
-  --font-sans: "Sora", "Segoe UI", sans-serif;
+  --font-display: "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
 
   /* Brand orange (attachment) */
   --color-brand-50: #fff7ed;
@@ -58,6 +58,9 @@
 @layer base {
   html {
     @apply antialiased;
+    /* Firefox — thin rail, light gray thumb on transparent track */
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
   }
 
   html.dark {
@@ -67,6 +70,48 @@
     --color-danger: #f87171;
     --color-danger-soft: #450a0a;
     --color-surface: #0b1220;
+    scrollbar-color: #475569 transparent;
+  }
+
+  /* Chromium / Safari / Edge — thin, lighter gray scrollbars (x + y) */
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: #d1d5db;
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    background-clip: padding-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: #c0c6ce;
+  }
+
+  *::-webkit-scrollbar-thumb:active {
+    background-color: #b0b7c0;
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  html.dark *::-webkit-scrollbar-thumb {
+    background-color: #475569;
+  }
+
+  html.dark *::-webkit-scrollbar-thumb:hover {
+    background-color: #64748b;
+  }
+
+  html.dark *::-webkit-scrollbar-thumb:active {
+    background-color: #94a3b8;
   }
 
   body {
@@ -143,11 +188,11 @@
   }
 
   tbody tr {
-    @apply transition-colors;
+    @apply transition-colors duration-150;
   }
 
-  tbody tr:hover {
-    @apply bg-orange-50/40 dark:bg-orange-500/10;
+  tbody tr:hover > td {
+    @apply bg-sky-50 dark:bg-sky-500/10;
   }
 
   /* Soft text helpers used across module pages */

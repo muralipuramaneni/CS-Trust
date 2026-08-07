@@ -13,7 +13,6 @@ export function LoginPage() {
 
   return (
     <AuthLayout
-      eyebrow="Welcome back"
       title="Sign in to your portal"
       subtitle="Access schools, teachers, attendance, assets, and impact tools for Chaitanya Saradhi."
     >

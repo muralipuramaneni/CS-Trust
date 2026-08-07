@@ -16,7 +16,6 @@ import {
   AuthDemoPill,
   AuthForm,
   AuthHelperCard,
-  AuthPillLink,
   AuthTextLink,
   authPrimaryButtonClass,
 } from './AuthChrome';
@@ -127,10 +126,8 @@ export function LoginForm() {
         />
       </FormField>
 
-      {/* Attachment order: Forgot left · Create account right */}
       <AuthActionsRow>
         <AuthTextLink to="/forgot-password">Forgot password?</AuthTextLink>
-        <AuthPillLink to="/signup">Create account</AuthPillLink>
       </AuthActionsRow>
 
       <Button type="submit" variant="primary" fullWidth disabled={isSubmitting} className={authPrimaryButtonClass}>
