@@ -1,10 +1,18 @@
 /**
- * Progress levels — logo / brand colors only (green for strong health).
- * High  ≥ 80% → green gradient
- * Medium 50–79% → logo orange gradient (mid)
- * Low   < 50% → soft peach → deep brand (logo blur family)
+ * Progress levels for labels/badges.
+ * Linear bar uses a logo continuum: flame/ribbon orange → hands blue.
  */
 export type ProgressLevel = 'high' | 'medium' | 'low';
+
+/** Logo palette — CS Trust emblem (ribbon orange · hands blue) */
+export const logoColors = {
+  orangeSoft: '#FDBA74',
+  orange: '#F58220',
+  orangeDeep: '#E86A0C',
+  sky: '#5EB8E8',
+  blue: '#0072BC',
+  blueDeep: '#005A96',
+} as const;
 
 export function progressLevel(value: number): ProgressLevel {
   if (value >= 80) return 'high';
@@ -19,30 +27,37 @@ export function progressLabel(value: number): string {
   return 'Needs focus';
 }
 
-export function progressBadgeTone(value: number): 'success' | 'brand' | 'warning' {
+export function progressBadgeTone(value: number): 'success' | 'info' | 'warning' {
   const level = progressLevel(value);
   if (level === 'high') return 'success';
-  if (level === 'medium') return 'brand';
+  if (level === 'medium') return 'info';
   return 'warning';
 }
 
-/** Linear bar classes — soft logo-blur gradients */
+/**
+ * Linear bar fill — single sleek logo gradient (orange → blue).
+ * Applied as Tailwind gradient utilities on the fill element.
+ */
 export const progressBarGradient: Record<ProgressLevel, string> = {
-  high: 'bg-gradient-to-r from-emerald-400 via-emerald-500 to-green-600',
-  medium: 'bg-gradient-to-r from-brand-300 via-brand-500 to-brand-600',
-  low: 'bg-gradient-to-r from-brand-200 via-brand-400 to-brand-700',
+  high: 'bg-gradient-to-r from-[#5EB8E8] via-[#0072BC] to-[#005A96]',
+  medium: 'bg-gradient-to-r from-[#F58220] via-[#3D9FD9] to-[#0072BC]',
+  low: 'bg-gradient-to-r from-[#FDBA74] via-[#7BB8E0] to-[#3D9FD9]',
 };
 
-/** SVG ring stroke stops (logo + green only) */
+/** Prefer full logo continuum for syllabus / brand progress strips */
+export const progressBarLogoGradient =
+  'bg-gradient-to-r from-[#F58220] via-[#3D9FD9] to-[#0072BC]';
+
+/** SVG ring stroke stops (logo orange → blue family) */
 export const progressRingStops: Record<
   ProgressLevel,
   { from: string; via?: string; to: string }
 > = {
-  high: { from: '#34d399', via: '#22c55e', to: '#15803d' },
-  medium: { from: '#fdba74', via: '#f97316', to: '#ea580c' },
-  low: { from: '#ffedd5', via: '#fb923c', to: '#c2410c' },
+  high: { from: logoColors.sky, via: logoColors.blue, to: logoColors.blueDeep },
+  medium: { from: logoColors.orange, via: logoColors.sky, to: logoColors.blue },
+  low: { from: logoColors.orangeSoft, via: '#7BB8E0', to: logoColors.sky },
 };
 
-/** Solid gray track behind the fill */
+/** Solid track behind the fill — low-contrast, pill shape */
 export const progressTrackClass =
-  'h-2.5 overflow-hidden rounded-lg bg-slate-200 dark:bg-slate-700';
+  'h-2 overflow-hidden rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200/70 dark:bg-slate-800/90 dark:ring-slate-700/80';

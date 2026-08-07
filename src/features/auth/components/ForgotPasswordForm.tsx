@@ -152,7 +152,6 @@ export function ForgotPasswordForm() {
           password.
         </Alert>
         <AuthActionsRow>
-          <AuthTextLink to="/signup">Create account</AuthTextLink>
           <AuthPillLink to="/login">Sign in</AuthPillLink>
         </AuthActionsRow>
         <Button variant="primary" fullWidth className={authPrimaryButtonClass} onClick={() => navigate('/login')}>
@@ -203,7 +202,6 @@ export function ForgotPasswordForm() {
 
         <AuthActionsRow>
           <AuthTextLink to="/login">Back to sign in</AuthTextLink>
-          <AuthPillLink to="/signup">Create account</AuthPillLink>
         </AuthActionsRow>
 
         <Button type="submit" variant="primary" fullWidth disabled={isSubmitting} className={authPrimaryButtonClass}>
@@ -300,7 +298,6 @@ export function ForgotPasswordForm() {
 
       <AuthActionsRow>
         <AuthTextLink to="/login">Back to sign in</AuthTextLink>
-        <AuthPillLink to="/signup">Create account</AuthPillLink>
       </AuthActionsRow>
 
       <Button type="submit" variant="primary" fullWidth disabled={isSubmitting} className={authPrimaryButtonClass}>

@@ -2,10 +2,12 @@ import type { ReactNode } from 'react';
 import { useEffect, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../../utils/cn';
+import { IconX } from './icons';
 
 /**
  * Full-viewport dialog with standard scrim:
  * covers sidebar + header + content (ported to document.body).
+ * Panel sizes to content; vertical scroll only kicks in past max height.
  */
 export function Modal({
   open,
@@ -52,7 +54,6 @@ export function Modal({
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
     >
-      {/* Full-page transparent scrim — entire app chrome */}
       <button
         type="button"
         className="absolute inset-0 bg-slate-900/45 backdrop-blur-[2px] dark:bg-black/55"
@@ -62,12 +63,12 @@ export function Modal({
 
       <div
         className={cn(
-          'relative z-10 flex w-full max-w-lg max-h-[min(90vh,40rem)] flex-col overflow-hidden rounded-lg',
+          'relative z-10 flex w-full max-w-lg max-h-[90vh] flex-col overflow-hidden rounded-lg',
           'border border-slate-200/90 bg-white dark:border-slate-700 dark:bg-slate-900',
           className,
         )}
       >
-        <div className="shrink-0 border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+        <div className="relative shrink-0 border-b border-slate-100 py-4 pl-5 pr-12 dark:border-slate-800">
           <h2 id={titleId} className="text-base font-semibold text-slate-900 dark:text-slate-50">
             {title}
           </h2>
@@ -76,8 +77,18 @@ export function Modal({
               {description}
             </p>
           ) : null}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            title="Close"
+            className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          >
+            <IconX className="h-4 w-4" />
+          </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+        {/* overflow-y only when content exceeds remaining space under max-h */}
+        <div className="min-h-0 overflow-y-auto overscroll-contain">{children}</div>
       </div>
     </div>,
     document.body,

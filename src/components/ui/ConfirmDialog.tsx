@@ -1,4 +1,5 @@
 import { Button } from './Button';
+import type { ButtonVariant } from './Button';
 import { Modal } from './Modal';
 
 export function ConfirmDialog({
@@ -6,6 +7,7 @@ export function ConfirmDialog({
   title = 'Delete record',
   description = 'This action cannot be undone. Are you sure you want to delete this record?',
   confirmLabel = 'Delete',
+  confirmVariant = 'destructive',
   onConfirm,
   onClose,
 }: {
@@ -13,6 +15,7 @@ export function ConfirmDialog({
   title?: string;
   description?: string;
   confirmLabel?: string;
+  confirmVariant?: ButtonVariant;
   onConfirm: () => void;
   onClose: () => void;
 }) {
@@ -24,7 +27,7 @@ export function ConfirmDialog({
         </Button>
         <Button
           type="button"
-          variant="destructive"
+          variant={confirmVariant}
           onClick={() => {
             onConfirm();
             onClose();

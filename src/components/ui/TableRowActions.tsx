@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
-import { IconCheck, IconEdit, IconTrash, IconUser, IconUserPlus, IconX } from './icons';
+import { IconCheck, IconEdit, IconEye, IconTrash, IconUser, IconUserPlus, IconX } from './icons';
 import { cn } from '../../utils/cn';
 
 export const tableActionBtnClass =
@@ -19,15 +19,22 @@ export function IconActionButton({
 
 /** Icon-only row actions for admin data tables */
 export function TableRowActions({
+  onView,
   onEdit,
   onDelete,
+  onDisable,
+  disableLabel,
   onAssign,
   assignLabel = 'Assign',
   assignVariant = 'add',
   className,
 }: {
+  onView?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  /** Toggle disable / enable (e.g. school programme status) */
+  onDisable?: () => void;
+  disableLabel?: string;
   onAssign?: () => void;
   assignLabel?: string;
   /** `add` = user+ (not assigned); `change` = user (already assigned) */
@@ -36,6 +43,11 @@ export function TableRowActions({
 }) {
   return (
     <div className={cn('flex items-center justify-end gap-0.5', className)}>
+      {onView ? (
+        <IconActionButton aria-label="View details" title="View details" onClick={onView}>
+          <IconEye className="h-4 w-4" />
+        </IconActionButton>
+      ) : null}
       {onAssign ? (
         <IconActionButton aria-label={assignLabel} title={assignLabel} onClick={onAssign}>
           {assignVariant === 'change' ? (
@@ -48,6 +60,20 @@ export function TableRowActions({
       {onEdit ? (
         <IconActionButton aria-label="Edit" title="Edit" onClick={onEdit}>
           <IconEdit className="h-4 w-4" />
+        </IconActionButton>
+      ) : null}
+      {onDisable ? (
+        <IconActionButton
+          aria-label={disableLabel ?? 'Disable'}
+          title={disableLabel ?? 'Disable'}
+          className="hover:bg-amber-50 hover:text-amber-700 dark:hover:bg-amber-500/15 dark:hover:text-amber-300"
+          onClick={onDisable}
+        >
+          {disableLabel === 'Enable' ? (
+            <IconCheck className="h-4 w-4" />
+          ) : (
+            <IconX className="h-4 w-4" />
+          )}
         </IconActionButton>
       ) : null}
       {onDelete ? (
@@ -74,7 +100,7 @@ export function LeaveReviewActions({
   className?: string;
 }) {
   return (
-    <div className={cn('flex items-center justify-end gap-0.5', className)}>
+    <div className={cn('inline-flex items-center justify-center gap-0.5', className)}>
       <IconActionButton
         aria-label="Approve"
         title="Approve"

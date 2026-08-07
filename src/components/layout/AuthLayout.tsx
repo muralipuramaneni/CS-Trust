@@ -34,7 +34,7 @@ export function AuthLayout({
   children,
   title,
   subtitle,
-  eyebrow = 'Welcome back',
+  eyebrow,
 }: AuthLayoutProps) {
   return (
     <div className="relative min-h-screen lg:grid lg:grid-cols-2">
@@ -166,9 +166,11 @@ export function AuthLayout({
       {/* RIGHT form portal — mirrors .auth-form-side */}
       <section className="auth-form-side relative z-[2] grid min-h-screen place-items-center bg-[#f4f7fb] px-7 py-10 dark:bg-slate-950">
         <div className="flex w-full max-w-[24.5rem] flex-col items-stretch">
-          <p className="mb-2.5 text-center text-[0.65rem] font-bold uppercase tracking-[0.2em] text-[#ff6a00]">
-            {eyebrow}
-          </p>
+          {eyebrow ? (
+            <p className="mb-2.5 text-center text-[0.65rem] font-bold uppercase tracking-[0.2em] text-[#ff6a00]">
+              {eyebrow}
+            </p>
+          ) : null}
 
           <div
             className={cn(

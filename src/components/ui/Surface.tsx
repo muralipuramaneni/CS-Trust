@@ -3,6 +3,7 @@ import { useId } from 'react';
 import { cn } from '../../utils/cn';
 import {
   progressBarGradient,
+  progressBarLogoGradient,
   progressLevel,
   progressRingStops,
   progressTrackClass,
@@ -316,27 +317,42 @@ export function ProgressBar({
   value,
   className,
   trackClassName,
+  /** `logo` = continuous orange→blue (emblem). `level` = health-tinted variant of same palette. */
+  variant = 'logo',
 }: {
   value: number;
   className?: string;
   trackClassName?: string;
+  variant?: 'logo' | 'level';
 }) {
   const clamped = Math.min(100, Math.max(0, value));
   const level = progressLevel(clamped);
+  const fillGradient =
+    variant === 'logo' ? progressBarLogoGradient : progressBarGradient[level];
 
   return (
-    <div className={cn(progressTrackClass, trackClassName, className)}>
+    <div
+      className={cn(progressTrackClass, trackClassName, className)}
+      role="progressbar"
+      aria-valuenow={clamped}
+      aria-valuemin={0}
+      aria-valuemax={100}
+    >
       <div
         className={cn(
-          'h-full rounded-lg transition-all duration-700 ease-out',
-          progressBarGradient[level],
+          'relative h-full overflow-hidden rounded-full transition-[width] duration-700 ease-out',
+          fillGradient,
+          clamped > 0 &&
+            'shadow-[0_0_10px_-1px_rgba(0,114,188,0.35),0_0_6px_-2px_rgba(245,130,32,0.25)]',
         )}
         style={{ width: `${clamped}%` }}
-        role="progressbar"
-        aria-valuenow={clamped}
-        aria-valuemin={0}
-        aria-valuemax={100}
-      />
+      >
+        {/* Soft top sheen for a glassy, sleek fill */}
+        <span
+          className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/40 to-transparent"
+          aria-hidden
+        />
+      </div>
     </div>
   );
 }

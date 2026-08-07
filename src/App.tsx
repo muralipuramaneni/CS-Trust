@@ -1,6 +1,5 @@
-import { Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { LoginPage } from './features/auth/pages/LoginPage';
-import { SignupPage } from './features/auth/pages/SignupPage';
 import { ForgotPasswordPage } from './features/auth/pages/ForgotPasswordPage';
 import { RoleRoute } from './routes/RoleRoute';
 import { HomeRedirect } from './routes/ProtectedRoute';
@@ -45,7 +44,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/signup" element={<SignupPage />} />
+      <Route path="/signup" element={<Navigate to="/login" replace />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
       {/* Admin */}

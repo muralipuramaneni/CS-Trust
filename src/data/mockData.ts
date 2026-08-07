@@ -123,7 +123,7 @@ export const schools: School[] = [
     studentCount: 138,
     computerCount: 11,
     teacherCount: 1,
-    status: 'active',
+    status: 'disabled',
     syllabusCompletion: 42,
   },
   {

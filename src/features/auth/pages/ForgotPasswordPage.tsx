@@ -13,7 +13,6 @@ export function ForgotPasswordPage() {
 
   return (
     <AuthLayout
-      eyebrow="Account recovery"
       title="Reset your password"
       subtitle="Verify your registered mobile number with OTP, then choose a new password."
     >
