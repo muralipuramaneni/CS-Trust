@@ -1,14 +1,13 @@
-import type { Dispatch, FormEvent, ReactNode, SetStateAction } from 'react';
-import { useEffect, useId, useRef, useState } from 'react';
+import type { Dispatch, FormEvent, ReactNode, SetStateAction, ChangeEvent } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import {
   Button,
   ConfirmDialog,
   FormField,
   Input,
   Modal,
-  LeaveReviewActions,
   TableRowActions,
   TableSearch,
   matchesSearch,
@@ -26,6 +25,11 @@ import {
   progressBadgeTone,
   progressLabel,
 } from '../../../utils/progress';
+import {
+  computeLeaveStats,
+  leaveDayCount,
+  leaveStatusTone,
+} from '../../../utils/leave';
 import { DataTable, Td } from '../../../components/ui/DataTable';
 import {
   IconAlert,
@@ -36,7 +40,10 @@ import {
   IconCheck,
   IconChevronLeft,
   IconChevronRight,
+  IconClipboard,
   IconClock,
+  IconHistory,
+  IconImage,
   IconInfo,
   IconMapPin,
   IconSchool,
@@ -72,6 +79,10 @@ import {
   assets as seedAssets,
   leaves as seedLeaves,
   schoolById,
+  teacherById,
+  teachersBySchool,
+  studentsBySchool,
+  sponsorById,
 } from '../../../data/mockData';
 import { useAuth } from '../../auth/hooks/useAuth';
 import { isValidEmail, isValidIndianPhone } from '../../../utils/validation';
@@ -554,6 +565,14 @@ const emptySchoolForm = {
   teacherCount: '',
 };
 
+const emptySchoolSponsorDetails = {
+  name: '',
+  email: '',
+  phone: '',
+  organization: '',
+  address: '',
+};
+
 function schoolToForm(school: School) {
   return {
     name: school.name,
@@ -577,10 +596,11 @@ export function AdminSchoolsPage() {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [viewSchool, setViewSchool] = useState<School | null>(null);
-  const [statusTarget, setStatusTarget] = useState<School | null>(null);
   const [form, setForm] = useState(emptySchoolForm);
   const [errors, setErrors] = useState<FieldErrors>({});
+  const [sponsorOpen, setSponsorOpen] = useState(false);
+  const [assignedSponsorId, setAssignedSponsorId] = useState('');
+  const [sponsorDetails, setSponsorDetails] = useState(emptySchoolSponsorDetails);
 
   const filteredSchools = schoolList.filter((school) =>
     matchesSearch(
@@ -610,17 +630,25 @@ export function AdminSchoolsPage() {
     setPage(1);
   }, [search]);
 
+  const resetSponsorSection = () => {
+    setSponsorOpen(false);
+    setAssignedSponsorId('');
+    setSponsorDetails(emptySchoolSponsorDetails);
+  };
+
   const closeModal = () => {
     setOpen(false);
     setEditingId(null);
     setForm(emptySchoolForm);
     setErrors({});
+    resetSponsorSection();
   };
 
   const openCreate = () => {
     setEditingId(null);
     setForm(emptySchoolForm);
     setErrors({});
+    resetSponsorSection();
     setOpen(true);
   };
 
@@ -628,8 +656,25 @@ export function AdminSchoolsPage() {
     setEditingId(school.id);
     setForm(schoolToForm(school));
     setErrors({});
+    resetSponsorSection();
     setOpen(true);
   };
+
+  const setField = (key: keyof typeof emptySchoolForm, value: string) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    touchField(setErrors, key);
+  };
+
+  const setSponsorDetailField = (
+    key: keyof typeof emptySchoolSponsorDetails,
+    value: string,
+  ) => {
+    setSponsorDetails((prev) => ({ ...prev, [key]: value }));
+    touchField(setErrors, `sponsor_${key}`);
+  };
+
+  const hasNewSponsorInput = Object.values(sponsorDetails).some((v) => v.trim());
+  const isCreate = !editingId;
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -642,8 +687,27 @@ export function AdminSchoolsPage() {
     else if (!isValidIndianPhone(form.contactNumber)) {
       nextErrors.contactNumber = 'Enter a valid 10-digit Indian mobile number.';
     }
+
+    // Sponsor section only applies when adding a school
+    if (isCreate && sponsorOpen && hasNewSponsorInput) {
+      if (!sponsorDetails.name.trim()) nextErrors.sponsor_name = enterField('sponsor name');
+      if (!sponsorDetails.email.trim()) nextErrors.sponsor_email = enterField('sponsor email');
+      else if (!isValidEmail(sponsorDetails.email)) {
+        nextErrors.sponsor_email = 'Enter a valid email address.';
+      }
+      if (!sponsorDetails.phone.trim()) nextErrors.sponsor_phone = enterField('sponsor phone');
+      else if (!isValidIndianPhone(sponsorDetails.phone)) {
+        nextErrors.sponsor_phone = 'Enter a valid 10-digit Indian mobile number.';
+      }
+    }
+
     setErrors(nextErrors);
-    if (hasFieldErrors(nextErrors)) return;
+    if (hasFieldErrors(nextErrors)) {
+      if (Object.keys(nextErrors).some((k) => k.startsWith('sponsor_'))) {
+        setSponsorOpen(true);
+      }
+      return;
+    }
 
     const fields = {
       name: form.name.trim(),
@@ -662,11 +726,19 @@ export function AdminSchoolsPage() {
         prev.map((s) => (s.id === editingId ? { ...s, ...fields } : s)),
       );
     } else {
+      let sponsorId: string | undefined;
+      if (sponsorOpen && hasNewSponsorInput) {
+        sponsorId = `spr_${Date.now()}`;
+      } else if (assignedSponsorId) {
+        sponsorId = assignedSponsorId;
+      }
+
       const next: School = {
         id: `sch_${Date.now()}`,
         ...fields,
         status: 'active',
         syllabusCompletion: 0,
+        sponsorId,
       };
       setSchoolList((prev) => [next, ...prev]);
       setPage(1);
@@ -674,26 +746,10 @@ export function AdminSchoolsPage() {
     closeModal();
   };
 
-  const setField = (key: keyof typeof emptySchoolForm, value: string) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-    touchField(setErrors, key);
-  };
-
-  const toggleSchoolStatus = (school: School) => {
-    const nextStatus = school.status === 'active' ? 'disabled' : 'active';
-    setSchoolList((prev) =>
-      prev.map((s) => (s.id === school.id ? { ...s, status: nextStatus } : s)),
-    );
-  };
-
-  const viewSponsorName = viewSchool?.sponsorId
-    ? sponsors.find((s) => s.id === viewSchool.sponsorId)?.name ?? '—'
-    : 'Unassigned';
-
   return (
     <AdminShell
       title="School Management"
-      description="Add and maintain schools, view full profiles, and disable programmes when needed."
+      description="Add and maintain schools, open school dashboards, and manage programme status."
       actions={
         <>
           <TableSearch
@@ -737,13 +793,12 @@ export function AdminSchoolsPage() {
                   className={isDisabled ? 'opacity-75' : undefined}
                 >
                   <Td>
-                    <button
-                      type="button"
-                      onClick={() => setViewSchool(school)}
-                      className="text-left font-medium text-sky-700 underline decoration-sky-700/30 underline-offset-2 transition hover:text-sky-800 hover:decoration-sky-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-1 dark:text-sky-400 dark:decoration-sky-400/40 dark:hover:text-sky-300 dark:hover:decoration-sky-300"
+                    <Link
+                      to={`/admin/schools/${school.id}`}
+                      className="font-medium text-sky-700 underline decoration-sky-700/30 underline-offset-2 transition hover:text-sky-800 hover:decoration-sky-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-1 dark:text-sky-400 dark:decoration-sky-400/40 dark:hover:text-sky-300 dark:hover:decoration-sky-300"
                     >
                       {school.name}
-                    </button>
+                    </Link>
                   </Td>
                   <Td>
                     {school.district}
@@ -904,6 +959,129 @@ export function AdminSchoolsPage() {
               />
             </FormField>
           </div>
+
+          {/* Add School only — collapsible sponsor under school fields */}
+          {isCreate ? (
+            <div className="mt-5">
+              <div className="flex items-center gap-1.5 border-b border-slate-200 pb-2.5 dark:border-slate-700">
+                <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                  Add Sponsor
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSponsorOpen((v) => !v)}
+                  aria-expanded={sponsorOpen}
+                  aria-controls="school-sponsor-panel"
+                  title={sponsorOpen ? 'Hide sponsor details' : 'Show sponsor details'}
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                >
+                  <IconChevronRight
+                    className={`h-4 w-4 transition-transform duration-200 ${
+                      sponsorOpen ? 'rotate-90' : ''
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {sponsorOpen ? (
+                <div
+                  id="school-sponsor-panel"
+                  className="mt-3 rounded-lg bg-slate-50/90 px-3 py-3 dark:bg-slate-800/50"
+                >
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="sm:col-span-2">
+                      <FormField id="school-sponsor-existing" label="Existing sponsor">
+                        <select
+                          className="field-control w-full"
+                          value={assignedSponsorId}
+                          onChange={(e) => {
+                            setAssignedSponsorId(e.target.value);
+                            if (e.target.value) {
+                              setSponsorDetails(emptySchoolSponsorDetails);
+                            }
+                          }}
+                        >
+                          <option value="">None — create new below (optional)</option>
+                          {sponsors.map((sponsor) => (
+                            <option key={sponsor.id} value={sponsor.id}>
+                              {sponsor.name}
+                              {sponsor.organization ? ` · ${sponsor.organization}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </FormField>
+                      <p className="mt-1.5 text-[0.7rem] text-slate-500 dark:text-slate-400">
+                        Choose an existing sponsor, or fill the fields below to add a new one.
+                      </p>
+                    </div>
+
+                    {!assignedSponsorId ? (
+                      <>
+                        <div className="sm:col-span-2">
+                          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                            New sponsor details
+                          </p>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <FormField
+                            id="school-sponsor-name"
+                            label="Sponsor name"
+                            error={errors.sponsor_name}
+                          >
+                            <Input
+                              value={sponsorDetails.name}
+                              onChange={(e) => setSponsorDetailField('name', e.target.value)}
+                              placeholder="Full name"
+                            />
+                          </FormField>
+                        </div>
+                        <FormField
+                          id="school-sponsor-email"
+                          label="Email"
+                          error={errors.sponsor_email}
+                        >
+                          <Input
+                            type="email"
+                            value={sponsorDetails.email}
+                            onChange={(e) => setSponsorDetailField('email', e.target.value)}
+                            placeholder="sponsor@example.com"
+                          />
+                        </FormField>
+                        <FormField
+                          id="school-sponsor-phone"
+                          label="Phone"
+                          error={errors.sponsor_phone}
+                        >
+                          <Input
+                            value={sponsorDetails.phone}
+                            onChange={(e) => setSponsorDetailField('phone', e.target.value)}
+                            placeholder="10-digit mobile"
+                          />
+                        </FormField>
+                        <FormField id="school-sponsor-org" label="Organization">
+                          <Input
+                            value={sponsorDetails.organization}
+                            onChange={(e) =>
+                              setSponsorDetailField('organization', e.target.value)
+                            }
+                            placeholder="Organization"
+                          />
+                        </FormField>
+                        <FormField id="school-sponsor-address" label="Address">
+                          <Input
+                            value={sponsorDetails.address}
+                            onChange={(e) => setSponsorDetailField('address', e.target.value)}
+                            placeholder="Address"
+                          />
+                        </FormField>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
             <Button type="button" variant="ghost" onClick={closeModal}>
               Cancel
@@ -914,113 +1092,6 @@ export function AdminSchoolsPage() {
           </div>
         </form>
       </Modal>
-
-      <Modal
-        open={Boolean(viewSchool)}
-        onClose={() => setViewSchool(null)}
-        title="School details"
-        description={viewSchool?.name}
-        className="max-w-xl"
-      >
-        {viewSchool ? (
-          <div className="px-5 py-4">
-            <div className="mb-4 flex flex-wrap items-center gap-2">
-              <Badge tone={viewSchool.status === 'disabled' ? 'warning' : 'success'}>
-                {viewSchool.status === 'disabled' ? 'Disabled' : 'Active'}
-              </Badge>
-              <Badge tone={progressBadgeTone(viewSchool.syllabusCompletion)}>
-                Syllabus {viewSchool.syllabusCompletion}% · {progressLabel(viewSchool.syllabusCompletion)}
-              </Badge>
-            </div>
-
-            <dl className="grid gap-3 sm:grid-cols-2">
-              {(
-                [
-                  ['School name', viewSchool.name],
-                  ['District', viewSchool.district],
-                  ['Mandal', viewSchool.mandal],
-                  ['Village / area', viewSchool.village || '—'],
-                  ['Principal', viewSchool.principalName],
-                  ['Contact', viewSchool.contactNumber],
-                  ['Students', String(viewSchool.studentCount)],
-                  ['Computers', String(viewSchool.computerCount)],
-                  ['Teachers', String(viewSchool.teacherCount)],
-                  ['Sponsor', viewSponsorName],
-                  ['Syllabus completion', `${viewSchool.syllabusCompletion}%`],
-                ] as const
-              ).map(([label, value]) => (
-                <div
-                  key={label}
-                  className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-800/40"
-                >
-                  <dt className="text-[0.65rem] font-semibold uppercase tracking-wide text-slate-400">
-                    {label}
-                  </dt>
-                  <dd className="mt-0.5 text-sm font-medium text-slate-800 dark:text-slate-100">
-                    {value}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-
-            <div className="mt-4">
-              <p className="mb-1.5 text-[0.65rem] font-semibold uppercase tracking-wide text-slate-400">
-                Syllabus progress
-              </p>
-              <div className="flex items-center gap-3">
-                <ProgressBar value={viewSchool.syllabusCompletion} className="min-w-0 flex-1" />
-                <span className="shrink-0 text-xs font-bold tabular-nums text-slate-600 dark:text-slate-300">
-                  {viewSchool.syllabusCompletion}%
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  const school = viewSchool;
-                  setViewSchool(null);
-                  setStatusTarget(school);
-                }}
-              >
-                {viewSchool.status === 'disabled' ? 'Enable school' : 'Disable school'}
-              </Button>
-              <Button
-                type="button"
-                variant="primary"
-                onClick={() => {
-                  const school = viewSchool;
-                  setViewSchool(null);
-                  openEdit(school);
-                }}
-              >
-                Edit school
-              </Button>
-            </div>
-          </div>
-        ) : null}
-      </Modal>
-
-      <ConfirmDialog
-        open={Boolean(statusTarget)}
-        title={
-          statusTarget?.status === 'disabled' ? 'Enable school' : 'Disable school'
-        }
-        description={
-          statusTarget?.status === 'disabled'
-            ? `${statusTarget.name} will be marked Active and included in programme monitoring again.`
-            : `${statusTarget?.name ?? 'This school'} will be disabled. It stays in the list but is treated as inactive for operations.`
-        }
-        confirmLabel={statusTarget?.status === 'disabled' ? 'Enable' : 'Disable'}
-        confirmVariant={statusTarget?.status === 'disabled' ? 'primary' : 'destructive'}
-        onClose={() => setStatusTarget(null)}
-        onConfirm={() => {
-          if (!statusTarget) return;
-          toggleSchoolStatus(statusTarget);
-        }}
-      />
 
       <ConfirmDialog
         open={Boolean(deleteId)}
@@ -1036,14 +1107,459 @@ export function AdminSchoolsPage() {
   );
 }
 
+
+export function AdminSchoolDetailsPage() {
+  const { schoolId = '' } = useParams<{ schoolId: string }>();
+  const seed = schoolById(schoolId);
+  const [school, setSchool] = useState<School | null>(() => (seed ? { ...seed } : null));
+  const [editOpen, setEditOpen] = useState(false);
+  const [statusConfirm, setStatusConfirm] = useState(false);
+  const [form, setForm] = useState(emptySchoolForm);
+  const [errors, setErrors] = useState<FieldErrors>({});
+
+  useEffect(() => {
+    const next = schoolById(schoolId);
+    setSchool(next ? { ...next } : null);
+  }, [schoolId]);
+
+  if (!school) {
+    return (
+      <div className="w-full">
+        <nav aria-label="Breadcrumb" className="mb-4">
+          <ol className="flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
+            <li>
+              <Link
+                to="/admin/schools"
+                className="font-medium text-sky-700 underline decoration-sky-700/30 underline-offset-2 hover:text-sky-800 dark:text-sky-400"
+              >
+                Schools
+              </Link>
+            </li>
+            <li aria-hidden className="text-slate-300 dark:text-slate-600">
+              <IconChevronRight className="h-3.5 w-3.5" />
+            </li>
+            <li className="font-medium text-slate-700 dark:text-slate-200">School details</li>
+          </ol>
+        </nav>
+        <Card className="py-10 text-center">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            This school could not be found.
+          </p>
+          <Link
+            to="/admin/schools"
+            className="mt-3 inline-flex text-sm font-semibold text-sky-700 hover:text-sky-800 dark:text-sky-400"
+          >
+            Back to School Management
+          </Link>
+        </Card>
+      </div>
+    );
+  }
+
+  const isDisabled = school.status === 'disabled';
+  const schoolTeachers = teachersBySchool(school.id);
+  const schoolStudents = studentsBySchool(school.id);
+  const sponsor = school.sponsorId ? sponsorById(school.sponsorId) : undefined;
+  const schoolTickets = tickets.filter((t) => t.schoolId === school.id);
+  const openTickets = schoolTickets.filter(
+    (t) => t.status !== 'Resolved' && t.status !== 'Closed',
+  ).length;
+
+  const openEdit = () => {
+    setForm(schoolToForm(school));
+    setErrors({});
+    setEditOpen(true);
+  };
+
+  const closeEdit = () => {
+    setEditOpen(false);
+    setErrors({});
+  };
+
+  const setField = (key: keyof typeof emptySchoolForm, value: string) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    touchField(setErrors, key);
+  };
+
+  const handleSave = (e: FormEvent) => {
+    e.preventDefault();
+    const nextErrors: FieldErrors = {};
+    if (!form.name.trim()) nextErrors.name = enterField('school name');
+    if (!form.district.trim()) nextErrors.district = enterField('district');
+    if (!form.mandal.trim()) nextErrors.mandal = enterField('mandal');
+    if (!form.principalName.trim()) nextErrors.principalName = enterField('principal name');
+    if (!form.contactNumber.trim()) nextErrors.contactNumber = enterField('contact number');
+    else if (!isValidIndianPhone(form.contactNumber)) {
+      nextErrors.contactNumber = 'Enter a valid 10-digit Indian mobile number.';
+    }
+    setErrors(nextErrors);
+    if (hasFieldErrors(nextErrors)) return;
+
+    setSchool((prev) =>
+      prev
+        ? {
+            ...prev,
+            name: form.name.trim(),
+            district: form.district.trim(),
+            mandal: form.mandal.trim(),
+            village: form.village.trim(),
+            principalName: form.principalName.trim(),
+            contactNumber: form.contactNumber.trim(),
+            studentCount: Number(form.studentCount) || 0,
+            computerCount: Number(form.computerCount) || 0,
+            teacherCount: Number(form.teacherCount) || 0,
+          }
+        : prev,
+    );
+    closeEdit();
+  };
+
+  return (
+    <div className="w-full">
+      <nav aria-label="Breadcrumb" className="mb-3 sm:mb-4">
+        <ol className="flex flex-wrap items-center gap-1.5 text-sm">
+          <li>
+            <Link
+              to="/admin/schools"
+              className="font-medium text-sky-700 underline decoration-sky-700/30 underline-offset-2 transition hover:text-sky-800 dark:text-sky-400 dark:decoration-sky-400/40 dark:hover:text-sky-300"
+            >
+              Schools
+            </Link>
+          </li>
+          <li aria-hidden className="text-slate-300 dark:text-slate-600">
+            <IconChevronRight className="h-3.5 w-3.5" />
+          </li>
+          <li className="min-w-0 truncate font-medium text-slate-700 dark:text-slate-200">
+            School details
+          </li>
+        </ol>
+      </nav>
+
+      <PageHeader
+        title={school.name}
+        description={`${school.district} · ${school.mandal}${school.village ? ` · ${school.village}` : ''}`}
+        actions={
+          <>
+            <Badge tone={isDisabled ? 'warning' : 'success'}>
+              {isDisabled ? 'Disabled' : 'Active'}
+            </Badge>
+            <Button type="button" variant="outline" onClick={() => setStatusConfirm(true)}>
+              {isDisabled ? 'Enable school' : 'Disable school'}
+            </Button>
+            <Button type="button" variant="primary" onClick={openEdit}>
+              Edit school
+            </Button>
+          </>
+        }
+      />
+
+      <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Students"
+          value={school.studentCount}
+          hint={
+            schoolStudents.length
+              ? `${schoolStudents.length} in demo roster`
+              : 'Enrolled on roll'
+          }
+          accent="emerald"
+          icon={<IconUsers className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Teachers"
+          value={school.teacherCount}
+          hint={
+            schoolTeachers.length
+              ? schoolTeachers.map((t) => t.name).join(', ')
+              : 'Assigned staff'
+          }
+          accent="sky"
+          icon={<IconUsers className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Computers"
+          value={school.computerCount}
+          hint="Lab devices"
+          accent="brand"
+          icon={<IconBox className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Syllabus"
+          value={`${school.syllabusCompletion}%`}
+          hint={progressLabel(school.syllabusCompletion)}
+          accent="amber"
+          icon={<IconBook className="h-4 w-4" />}
+        />
+      </section>
+
+      <section className="mb-5 grid gap-4 lg:grid-cols-5">
+        <Card className="lg:col-span-3" padding="lg">
+          <SectionTitle>School overview</SectionTitle>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <Badge tone={progressBadgeTone(school.syllabusCompletion)}>
+              {progressLabel(school.syllabusCompletion)}
+            </Badge>
+            <span className="text-xs text-slate-500">Syllabus completion</span>
+          </div>
+          <div className="mt-4 flex items-center gap-4">
+            <ProgressRing value={school.syllabusCompletion} size={72} stroke={6} />
+            <div className="min-w-0 flex-1">
+              <ProgressBar value={school.syllabusCompletion} className="mt-1" />
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                Principal {school.principalName} · {school.contactNumber}
+              </p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Sponsor: {sponsor?.name ?? 'Unassigned'}
+                {openTickets > 0
+                  ? ` · ${openTickets} open ticket${openTickets === 1 ? '' : 's'}`
+                  : ''}
+              </p>
+            </div>
+          </div>
+
+          {schoolTeachers.length > 0 ? (
+            <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Teachers at this school
+              </p>
+              <ul className="space-y-2">
+                {schoolTeachers.map((teacher) => (
+                  <li
+                    key={teacher.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50/90 px-3 py-2 text-sm dark:bg-slate-800/50"
+                  >
+                    <span className="min-w-0">
+                      <Link
+                        to={`/admin/teachers/${teacher.id}`}
+                        className="font-medium text-sky-700 underline decoration-sky-700/30 underline-offset-2 transition hover:text-sky-800 dark:text-sky-400 dark:decoration-sky-400/40 dark:hover:text-sky-300"
+                      >
+                        {teacher.name}
+                      </Link>
+                      <span className="mt-0.5 block text-xs text-slate-500">
+                        {teacher.employeeId}
+                      </span>
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {teacher.assignedClasses.join(', ') || 'No classes'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </Card>
+
+        <Card className="lg:col-span-2" padding="lg">
+          <SectionTitle>Profile</SectionTitle>
+          <dl className="mt-1 space-y-2.5">
+            {(
+              [
+                ['School name', school.name],
+                ['District', school.district],
+                ['Mandal', school.mandal],
+                ['Village / area', school.village || '—'],
+                ['Principal', school.principalName],
+                ['Contact', school.contactNumber],
+                ['Students', String(school.studentCount)],
+                ['Computers', String(school.computerCount)],
+                ['Teachers', String(school.teacherCount)],
+                ['Sponsor', sponsor?.name ?? 'Unassigned'],
+                ['Status', isDisabled ? 'Disabled' : 'Active'],
+              ] as const
+            ).map(([label, value]) => (
+              <div
+                key={label}
+                className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2 last:border-0 last:pb-0 dark:border-slate-800"
+              >
+                <dt className="text-xs font-medium text-slate-500">{label}</dt>
+                <dd className="text-right text-sm font-medium text-slate-800 dark:text-slate-100">
+                  {value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </Card>
+      </section>
+
+      <Modal
+        open={editOpen}
+        onClose={closeEdit}
+        title="Edit School"
+        description="Update school details for the trust network."
+      >
+        <form noValidate onSubmit={handleSave} className="px-5 py-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <FormField id="detail-school-name" label="School name" required error={errors.name}>
+                <Input value={form.name} onChange={(e) => setField('name', e.target.value)} />
+              </FormField>
+            </div>
+            <FormField id="detail-district" label="District" required error={errors.district}>
+              <Input
+                value={form.district}
+                onChange={(e) => setField('district', e.target.value)}
+              />
+            </FormField>
+            <FormField id="detail-mandal" label="Mandal" required error={errors.mandal}>
+              <Input value={form.mandal} onChange={(e) => setField('mandal', e.target.value)} />
+            </FormField>
+            <FormField id="detail-village" label="Village / area">
+              <Input value={form.village} onChange={(e) => setField('village', e.target.value)} />
+            </FormField>
+            <FormField
+              id="detail-principal"
+              label="Principal name"
+              required
+              error={errors.principalName}
+            >
+              <Input
+                value={form.principalName}
+                onChange={(e) => setField('principalName', e.target.value)}
+              />
+            </FormField>
+            <FormField
+              id="detail-contact"
+              label="Contact number"
+              required
+              error={errors.contactNumber}
+            >
+              <Input
+                value={form.contactNumber}
+                onChange={(e) => setField('contactNumber', e.target.value)}
+              />
+            </FormField>
+            <FormField id="detail-students" label="Students">
+              <Input
+                type="number"
+                min={0}
+                value={form.studentCount}
+                onChange={(e) => setField('studentCount', e.target.value)}
+              />
+            </FormField>
+            <FormField id="detail-computers" label="Computers">
+              <Input
+                type="number"
+                min={0}
+                value={form.computerCount}
+                onChange={(e) => setField('computerCount', e.target.value)}
+              />
+            </FormField>
+            <FormField id="detail-teachers" label="Teachers">
+              <Input
+                type="number"
+                min={0}
+                value={form.teacherCount}
+                onChange={(e) => setField('teacherCount', e.target.value)}
+              />
+            </FormField>
+          </div>
+          <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+            <Button type="button" variant="ghost" onClick={closeEdit}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary">
+              Update School
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <ConfirmDialog
+        open={statusConfirm}
+        title={isDisabled ? 'Enable school' : 'Disable school'}
+        description={
+          isDisabled
+            ? `${school.name} will be marked Active and included in programme monitoring again.`
+            : `${school.name} will be disabled. It stays in the network list but is treated as inactive for operations.`
+        }
+        confirmLabel={isDisabled ? 'Enable' : 'Disable'}
+        confirmVariant={isDisabled ? 'primary' : 'destructive'}
+        onClose={() => setStatusConfirm(false)}
+        onConfirm={() => {
+          setSchool((prev) =>
+            prev
+              ? { ...prev, status: prev.status === 'active' ? 'disabled' : 'active' }
+              : prev,
+          );
+        }}
+      />
+    </div>
+  );
+}
+
 const emptyTeacherForm = {
+  employeeId: '',
   name: '',
   mobile: '',
   email: '',
   qualification: '',
+  joiningDate: '',
   schoolId: '',
   assignedClasses: '',
+  photoUrl: '',
+  active: true as boolean,
 };
+
+function nextEmployeeId(teachers: TeacherProfile[]) {
+  let max = 1000;
+  for (const t of teachers) {
+    const match = /^EMP-(\d+)$/i.exec(t.employeeId.trim());
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  return `EMP-${max + 1}`;
+}
+
+function mockTempPassword() {
+  return `Tch@${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+function teacherInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+}
+
+function TeacherAvatar({
+  name,
+  photoUrl,
+  size = 'md',
+  className = '',
+}: {
+  name: string;
+  photoUrl?: string;
+  size?: 'sm' | 'md' | 'lg' | 'xl';
+  className?: string;
+}) {
+  const sizes = {
+    sm: 'h-8 w-8 text-[0.65rem]',
+    md: 'h-9 w-9 text-[0.7rem]',
+    lg: 'h-16 w-16 text-base',
+    xl: 'h-20 w-20 text-lg sm:h-[5.5rem] sm:w-[5.5rem] sm:text-xl',
+  }[size];
+
+  if (photoUrl) {
+    return (
+      <img
+        src={photoUrl}
+        alt=""
+        className={`${sizes} shrink-0 rounded-full object-cover shadow-sm ring-2 ring-white dark:ring-slate-800 ${className}`}
+      />
+    );
+  }
+
+  return (
+    <span
+      className={`grid shrink-0 place-items-center rounded-full bg-gradient-to-br from-sky-100 to-sky-50 font-bold tracking-wide text-sky-800 shadow-sm ring-2 ring-white dark:from-sky-500/25 dark:to-sky-900/40 dark:text-sky-100 dark:ring-slate-800 ${sizes} ${className}`}
+      aria-hidden
+    >
+      {teacherInitials(name) || '—'}
+    </span>
+  );
+}
 
 export function AdminTeachersPage() {
   const [list, setList] = useState<TeacherProfile[]>(() => [...seedTeachers]);
@@ -1051,11 +1567,20 @@ export function AdminTeachersPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [createdLogin, setCreatedLogin] = useState<{
+    name: string;
+    email: string;
+    employeeId: string;
+    password: string;
+  } | null>(null);
   const [form, setForm] = useState({
     ...emptyTeacherForm,
+    employeeId: nextEmployeeId(seedTeachers),
     schoolId: schools[0]?.id ?? '',
+    joiningDate: new Date().toISOString().slice(0, 10),
   });
   const [errors, setErrors] = useState<FieldErrors>({});
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const filtered = list.filter((teacher) =>
     matchesSearch(
@@ -1065,47 +1590,111 @@ export function AdminTeachersPage() {
       teacher.mobile,
       teacher.email,
       teacher.qualification,
+      teacher.joiningDate,
       schoolById(teacher.schoolId)?.name,
       teacher.assignedClasses.join(' '),
     ),
   );
 
+  const resetTeacherForm = () => {
+    setForm({
+      ...emptyTeacherForm,
+      employeeId: nextEmployeeId(list),
+      schoolId: schools[0]?.id ?? '',
+      joiningDate: new Date().toISOString().slice(0, 10),
+      active: true,
+    });
+    if (photoInputRef.current) photoInputRef.current.value = '';
+  };
+
   const closeTeacherModal = () => {
     setModalOpen(false);
     setEditingId(null);
-    setForm({ ...emptyTeacherForm, schoolId: schools[0]?.id ?? '' });
+    resetTeacherForm();
     setErrors({});
   };
 
   const openCreate = () => {
     setEditingId(null);
-    setForm({ ...emptyTeacherForm, schoolId: schools[0]?.id ?? '' });
+    setForm({
+      ...emptyTeacherForm,
+      employeeId: nextEmployeeId(list),
+      schoolId: schools[0]?.id ?? '',
+      joiningDate: new Date().toISOString().slice(0, 10),
+      active: true,
+    });
     setErrors({});
+    if (photoInputRef.current) photoInputRef.current.value = '';
     setModalOpen(true);
   };
 
   const openEdit = (teacher: TeacherProfile) => {
     setEditingId(teacher.id);
     setForm({
+      employeeId: teacher.employeeId,
       name: teacher.name,
       mobile: teacher.mobile,
       email: teacher.email,
       qualification: teacher.qualification,
+      joiningDate: teacher.joiningDate,
       schoolId: teacher.schoolId,
       assignedClasses: teacher.assignedClasses.join(', '),
+      photoUrl: teacher.photoUrl ?? '',
+      active: teacher.active,
     });
     setErrors({});
+    if (photoInputRef.current) photoInputRef.current.value = '';
     setModalOpen(true);
   };
 
-  const setTeacherField = (key: keyof typeof emptyTeacherForm, value: string) => {
+  const setTeacherField = (
+    key: Exclude<keyof typeof emptyTeacherForm, 'active'>,
+    value: string,
+  ) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     touchField(setErrors, key);
+  };
+
+  const handlePhotoChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setErrors((prev) => ({ ...prev, photoUrl: 'Choose an image file (JPG, PNG, or WebP).' }));
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setErrors((prev) => ({ ...prev, photoUrl: 'Image must be 2 MB or smaller.' }));
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      setForm((prev) => ({ ...prev, photoUrl: result }));
+      touchField(setErrors, 'photoUrl');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const clearPhoto = () => {
+    setForm((prev) => ({ ...prev, photoUrl: '' }));
+    if (photoInputRef.current) photoInputRef.current.value = '';
+    touchField(setErrors, 'photoUrl');
   };
 
   const handleSave = (e: FormEvent) => {
     e.preventDefault();
     const nextErrors: FieldErrors = {};
+    if (!form.employeeId.trim()) nextErrors.employeeId = enterField('employee ID');
+    else {
+      const duplicate = list.some(
+        (t) =>
+          t.employeeId.trim().toLowerCase() === form.employeeId.trim().toLowerCase() &&
+          t.id !== editingId,
+      );
+      if (duplicate) nextErrors.employeeId = 'This employee ID is already in use.';
+    }
     if (!form.name.trim()) nextErrors.name = enterField('name');
     if (!form.mobile.trim()) nextErrors.mobile = enterField('mobile number');
     else if (!isValidIndianPhone(form.mobile)) {
@@ -1113,7 +1702,9 @@ export function AdminTeachersPage() {
     }
     if (!form.email.trim()) nextErrors.email = enterField('email address');
     else if (!isValidEmail(form.email)) nextErrors.email = 'Enter a valid email address.';
+    if (!form.joiningDate) nextErrors.joiningDate = enterField('joining date');
     if (!form.schoolId) nextErrors.schoolId = 'Select a school.';
+    if (!form.assignedClasses.trim()) nextErrors.assignedClasses = enterField('assigned classes');
     setErrors(nextErrors);
     if (hasFieldErrors(nextErrors)) return;
 
@@ -1121,6 +1712,8 @@ export function AdminTeachersPage() {
       .split(',')
       .map((c) => c.trim())
       .filter(Boolean);
+    const photoUrl = form.photoUrl.trim() || undefined;
+    const employeeId = form.employeeId.trim().toUpperCase();
 
     if (editingId) {
       setList((prev) =>
@@ -1128,38 +1721,52 @@ export function AdminTeachersPage() {
           t.id === editingId
             ? {
                 ...t,
+                employeeId,
                 name: form.name.trim(),
                 mobile: form.mobile.trim(),
                 email: form.email.trim(),
                 qualification: form.qualification.trim(),
+                joiningDate: form.joiningDate,
                 schoolId: form.schoolId,
                 assignedClasses: classes,
+                active: form.active,
+                photoUrl,
               }
             : t,
         ),
       );
-    } else {
-      const next: TeacherProfile = {
-        id: `tch_${Date.now()}`,
-        employeeId: `EMP-${1000 + list.length + 1}`,
-        name: form.name.trim(),
-        mobile: form.mobile.trim(),
-        email: form.email.trim(),
-        qualification: form.qualification.trim(),
-        joiningDate: new Date().toISOString().slice(0, 10),
-        schoolId: form.schoolId,
-        assignedClasses: classes.length ? classes : ['6'],
-        active: true,
-      };
-      setList((prev) => [next, ...prev]);
+      closeTeacherModal();
+      return;
     }
+
+    const password = mockTempPassword();
+    const next: TeacherProfile = {
+      id: `tch_${Date.now()}`,
+      employeeId,
+      name: form.name.trim(),
+      mobile: form.mobile.trim(),
+      email: form.email.trim(),
+      qualification: form.qualification.trim(),
+      joiningDate: form.joiningDate,
+      schoolId: form.schoolId,
+      assignedClasses: classes,
+      active: form.active,
+      photoUrl,
+    };
+    setList((prev) => [next, ...prev]);
     closeTeacherModal();
+    setCreatedLogin({
+      name: next.name,
+      email: next.email,
+      employeeId,
+      password,
+    });
   };
 
   return (
     <AdminShell
       title="Teacher Management"
-      description="Create logins, assign schools and classes, reset password, activate or deactivate access."
+      description="Create teacher logins, assign schools and classes, reset passwords, and activate or deactivate access."
       actions={
         <>
           <TableSearch value={search} onChange={setSearch} placeholder="Search teachers…" />
@@ -1176,36 +1783,46 @@ export function AdminTeachersPage() {
             'Employee ID',
             'Name',
             'Mobile',
-            'Email',
-            'Qualification',
-            'School',
-            'Classes',
-            'Status',
-            'Actions',
+            'Assigned School',
+            'Assigned Classes',
+            'Login',
+            { label: 'Actions', className: 'text-right' },
           ]}
         >
           {filtered.length === 0 ? (
             <tr>
-              <Td className="py-8 text-center text-slate-500" colSpan={9}>
+              <Td className="py-8 text-center text-slate-500" colSpan={7}>
                 No teachers match your search.
               </Td>
             </tr>
           ) : (
             filtered.map((teacher) => (
-              <tr key={teacher.id}>
-                <Td>{teacher.employeeId}</Td>
-                <Td className="font-medium text-slate-900 dark:text-slate-100">{teacher.name}</Td>
+              <tr key={teacher.id} className={teacher.active ? undefined : 'opacity-75'}>
+                <Td>
+                  <Link
+                    to={`/admin/teachers/${teacher.id}`}
+                    className="font-medium text-sky-700 underline decoration-sky-700/30 underline-offset-2 transition hover:text-sky-800 hover:decoration-sky-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-1 dark:text-sky-400 dark:decoration-sky-400/40 dark:hover:text-sky-300 dark:hover:decoration-sky-300"
+                  >
+                    {teacher.employeeId}
+                  </Link>
+                </Td>
+                <Td>
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <TeacherAvatar name={teacher.name} photoUrl={teacher.photoUrl} size="md" />
+                    <span className="truncate font-medium text-slate-900 dark:text-slate-100">
+                      {teacher.name}
+                    </span>
+                  </div>
+                </Td>
                 <Td>{teacher.mobile}</Td>
-                <Td>{teacher.email}</Td>
-                <Td>{teacher.qualification}</Td>
                 <Td>{schoolById(teacher.schoolId)?.name ?? '—'}</Td>
-                <Td>{teacher.assignedClasses.join(', ')}</Td>
+                <Td>{teacher.assignedClasses.join(', ') || '—'}</Td>
                 <Td>
                   <Badge tone={teacher.active ? 'success' : 'danger'}>
                     {teacher.active ? 'Active' : 'Inactive'}
                   </Badge>
                 </Td>
-                <Td>
+                <Td className="text-right align-middle">
                   <TableRowActions
                     onEdit={() => openEdit(teacher)}
                     onDelete={() => setDeleteId(teacher.id)}
@@ -1223,20 +1840,98 @@ export function AdminTeachersPage() {
         title={editingId ? 'Edit Teacher' : 'Add Teacher'}
         description={
           editingId
-            ? 'Update teacher profile and school assignment.'
-            : 'Enter teacher details to create their portal login.'
+            ? 'Update profile, school and class assignment, and login status.'
+            : 'Create a teacher login and assign school and classes.'
         }
       >
         <form noValidate onSubmit={handleSave} className="grid gap-3 px-5 py-4 sm:grid-cols-2">
+          {!editingId ? (
+            <div className="sm:col-span-2 rounded-lg border border-sky-200/80 bg-sky-50/80 px-3 py-2.5 text-[0.75rem] leading-relaxed text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-100">
+              Saving creates a portal login with the teacher email. A temporary password is shown
+              once after create (mock).
+            </div>
+          ) : null}
           <div className="sm:col-span-2">
-            <FormField id="tch-name" label="Name" required error={errors.name}>
-              <Input
-                value={form.name}
-                onChange={(e) => setTeacherField('name', e.target.value)}
-                placeholder="Full name"
-              />
+            <FormField id="tch-photo" label="Profile picture" error={errors.photoUrl}>
+              <div className="relative overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-50 via-white to-sky-50/70 p-4 sm:p-5 dark:border-slate-700 dark:from-slate-900/80 dark:via-slate-900/40 dark:to-sky-950/30">
+                <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center">
+                  <input
+                    ref={photoInputRef}
+                    id="tch-photo"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="sr-only"
+                    onChange={handlePhotoChange}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => photoInputRef.current?.click()}
+                    className="group relative mx-auto shrink-0 rounded-full outline-none transition-transform duration-200 hover:scale-[1.03] focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 sm:mx-0"
+                    aria-label={form.photoUrl ? 'Change profile picture' : 'Upload profile picture'}
+                  >
+                    <span className="relative block overflow-hidden rounded-full p-[3px] ring-1 ring-slate-200/90 shadow-sm dark:ring-slate-600">
+                      <TeacherAvatar
+                        name={form.name.trim() || 'Teacher'}
+                        photoUrl={form.photoUrl || undefined}
+                        size="xl"
+                        className="!ring-0 !shadow-none"
+                      />
+                      <span
+                        className="absolute inset-[3px] grid place-items-center rounded-full bg-slate-950/0 text-white opacity-0 transition-all duration-300 group-hover:bg-slate-950/55 group-hover:opacity-100 group-focus-visible:bg-slate-950/55 group-focus-visible:opacity-100"
+                        aria-hidden
+                      >
+                        <span className="flex flex-col items-center justify-center gap-1 text-center">
+                          <IconImage className="h-4 w-4 text-white" />
+                          <span className="text-[0.65rem] font-semibold leading-none whitespace-nowrap">
+                            {form.photoUrl ? 'Change photo' : 'Upload photo'}
+                          </span>
+                        </span>
+                      </span>
+                    </span>
+                  </button>
+                  <div className="min-w-0 flex-1 text-center sm:text-left">
+                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                      {form.photoUrl ? 'Photo ready' : 'Add a profile photo'}
+                    </p>
+                    <p className="mt-1 text-[0.75rem] text-slate-500">
+                      Hover the photo to upload. JPG, PNG, WebP or GIF · max 2&nbsp;MB.
+                    </p>
+                    {form.photoUrl ? (
+                      <button
+                        type="button"
+                        onClick={clearPhoto}
+                        className="mt-2.5 text-[0.75rem] font-semibold text-rose-600 hover:text-rose-700 dark:text-rose-400"
+                      >
+                        Remove photo
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
             </FormField>
           </div>
+
+          <div className="sm:col-span-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+            <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">Teacher Details</p>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              Required profile fields for the teacher record and portal login.
+            </p>
+          </div>
+
+          <FormField id="tch-employee-id" label="Employee ID" required error={errors.employeeId}>
+            <Input
+              value={form.employeeId}
+              onChange={(e) => setTeacherField('employeeId', e.target.value)}
+              placeholder="e.g. EMP-1003"
+            />
+          </FormField>
+          <FormField id="tch-name" label="Name" required error={errors.name}>
+            <Input
+              value={form.name}
+              onChange={(e) => setTeacherField('name', e.target.value)}
+              placeholder="Full name"
+            />
+          </FormField>
           <FormField id="tch-mobile" label="Mobile" required error={errors.mobile}>
             <Input
               value={form.mobile}
@@ -1252,7 +1947,21 @@ export function AdminTeachersPage() {
               placeholder="teacher@example.org"
             />
           </FormField>
-          <FormField id="tch-school" label="School" required error={errors.schoolId}>
+          <FormField id="tch-qual" label="Qualification" error={errors.qualification}>
+            <Input
+              value={form.qualification}
+              onChange={(e) => setTeacherField('qualification', e.target.value)}
+              placeholder="e.g. B.Sc Computers, B.Ed"
+            />
+          </FormField>
+          <FormField id="tch-join" label="Joining Date" required error={errors.joiningDate}>
+            <Input
+              type="date"
+              value={form.joiningDate}
+              onChange={(e) => setTeacherField('joiningDate', e.target.value)}
+            />
+          </FormField>
+          <FormField id="tch-school" label="Assigned School" required error={errors.schoolId}>
             <select
               className="field-control w-full"
               value={form.schoolId}
@@ -1266,28 +1975,39 @@ export function AdminTeachersPage() {
               ))}
             </select>
           </FormField>
-          <FormField id="tch-classes" label="Classes">
+          <FormField
+            id="tch-classes"
+            label="Assigned Classes"
+            required
+            error={errors.assignedClasses}
+          >
             <Input
               value={form.assignedClasses}
               onChange={(e) => setTeacherField('assignedClasses', e.target.value)}
               placeholder="e.g. 6, 7, 8"
             />
           </FormField>
-          <div className="sm:col-span-2">
-            <FormField id="tch-qual" label="Qualification">
-              <Input
-                value={form.qualification}
-                onChange={(e) => setTeacherField('qualification', e.target.value)}
-                placeholder="e.g. B.Sc Computers, B.Ed"
-              />
-            </FormField>
-          </div>
+          {editingId ? (
+            <div className="sm:col-span-2">
+              <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/50">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-400"
+                  checked={form.active}
+                  onChange={(e) => setForm((prev) => ({ ...prev, active: e.target.checked }))}
+                />
+                <span className="text-sm text-slate-700 dark:text-slate-200">
+                  Login active (teacher can sign in to the portal)
+                </span>
+              </label>
+            </div>
+          ) : null}
           <div className="sm:col-span-2 flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
             <Button type="button" variant="ghost" onClick={closeTeacherModal}>
               Cancel
             </Button>
             <Button type="submit" variant="primary">
-              {editingId ? 'Update Teacher' : 'Save Teacher'}
+              {editingId ? 'Update Teacher' : 'Create login & save'}
             </Button>
           </div>
         </form>
@@ -1295,15 +2015,670 @@ export function AdminTeachersPage() {
 
       <ConfirmDialog
         open={Boolean(deleteId)}
-        title="Delete teacher"
-        description="This teacher will be removed from the list."
+        title="Remove teacher"
+        description="This teacher and their portal login will be removed from the list."
+        confirmLabel="Remove"
+        confirmVariant="destructive"
         onClose={() => setDeleteId(null)}
         onConfirm={() => {
           if (!deleteId) return;
           setList((prev) => prev.filter((t) => t.id !== deleteId));
         }}
       />
+
+      <Modal
+        open={Boolean(createdLogin)}
+        onClose={() => setCreatedLogin(null)}
+        title="Teacher login created"
+        description="Portal credentials are ready (demo)."
+      >
+        <div className="space-y-3 px-5 py-4">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Login created for{' '}
+            <span className="font-semibold text-slate-900 dark:text-slate-100">
+              {createdLogin?.name}
+            </span>
+            .
+          </p>
+          <dl className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-sm dark:border-emerald-500/30 dark:bg-emerald-500/10">
+            <div className="flex justify-between gap-3">
+              <dt className="text-slate-500">Employee ID</dt>
+              <dd className="font-medium">{createdLogin?.employeeId}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-slate-500">Email</dt>
+              <dd className="font-medium">{createdLogin?.email}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-slate-500">Temp password</dt>
+              <dd className="font-mono font-semibold text-emerald-800 dark:text-emerald-300">
+                {createdLogin?.password}
+              </dd>
+            </div>
+          </dl>
+          <div className="flex justify-end">
+            <Button type="button" variant="primary" onClick={() => setCreatedLogin(null)}>
+              Done
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </AdminShell>
+  );
+}
+
+export function AdminTeacherDetailsPage() {
+  const { teacherId = '' } = useParams<{ teacherId: string }>();
+  const seed = teacherById(teacherId);
+  const [teacher, setTeacher] = useState<TeacherProfile | null>(() =>
+    seed ? { ...seed } : null,
+  );
+  const [editOpen, setEditOpen] = useState(false);
+  const [statusConfirm, setStatusConfirm] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    ...emptyTeacherForm,
+    schoolId: schools[0]?.id ?? '',
+  });
+  const [errors, setErrors] = useState<FieldErrors>({});
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const next = teacherById(teacherId);
+    setTeacher(next ? { ...next } : null);
+  }, [teacherId]);
+
+  if (!teacher) {
+    return (
+      <div className="w-full">
+        <nav aria-label="Breadcrumb" className="mb-4">
+          <ol className="flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
+            <li>
+              <Link
+                to="/admin/teachers"
+                className="font-medium text-sky-700 underline decoration-sky-700/30 underline-offset-2 hover:text-sky-800 dark:text-sky-400"
+              >
+                Teachers
+              </Link>
+            </li>
+            <li aria-hidden className="text-slate-300 dark:text-slate-600">
+              <IconChevronRight className="h-3.5 w-3.5" />
+            </li>
+            <li className="font-medium text-slate-700 dark:text-slate-200">Employee details</li>
+          </ol>
+        </nav>
+        <Card className="py-10 text-center">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            This employee could not be found.
+          </p>
+          <Link
+            to="/admin/teachers"
+            className="mt-3 inline-flex text-sm font-semibold text-sky-700 hover:text-sky-800 dark:text-sky-400"
+          >
+            Back to Teacher Management
+          </Link>
+        </Card>
+      </div>
+    );
+  }
+
+  const school = schoolById(teacher.schoolId);
+  const teacherLeaves = leaves.filter((l) => l.teacherId === teacher.id);
+  const pendingLeaves = teacherLeaves.filter((l) => l.status === 'Pending').length;
+  const joiningLabel = new Intl.DateTimeFormat('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(teacher.joiningDate));
+
+  const closeEdit = () => {
+    setEditOpen(false);
+    setErrors({});
+    if (photoInputRef.current) photoInputRef.current.value = '';
+  };
+
+  const openEdit = () => {
+    setForm({
+      employeeId: teacher.employeeId,
+      name: teacher.name,
+      mobile: teacher.mobile,
+      email: teacher.email,
+      qualification: teacher.qualification,
+      joiningDate: teacher.joiningDate,
+      schoolId: teacher.schoolId,
+      assignedClasses: teacher.assignedClasses.join(', '),
+      photoUrl: teacher.photoUrl ?? '',
+      active: teacher.active,
+    });
+    setErrors({});
+    if (photoInputRef.current) photoInputRef.current.value = '';
+    setEditOpen(true);
+  };
+
+  const setTeacherField = (
+    key: Exclude<keyof typeof emptyTeacherForm, 'active'>,
+    value: string,
+  ) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    touchField(setErrors, key);
+  };
+
+  const handlePhotoChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setErrors((prev) => ({ ...prev, photoUrl: 'Choose an image file (JPG, PNG, or WebP).' }));
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setErrors((prev) => ({ ...prev, photoUrl: 'Image must be 2 MB or smaller.' }));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      setForm((prev) => ({ ...prev, photoUrl: result }));
+      touchField(setErrors, 'photoUrl');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const clearPhoto = () => {
+    setForm((prev) => ({ ...prev, photoUrl: '' }));
+    if (photoInputRef.current) photoInputRef.current.value = '';
+    touchField(setErrors, 'photoUrl');
+  };
+
+  const handleSave = (e: FormEvent) => {
+    e.preventDefault();
+    const nextErrors: FieldErrors = {};
+    if (!form.name.trim()) nextErrors.name = enterField('name');
+    if (!form.mobile.trim()) nextErrors.mobile = enterField('mobile number');
+    else if (!isValidIndianPhone(form.mobile)) {
+      nextErrors.mobile = 'Enter a valid 10-digit Indian mobile number.';
+    }
+    if (!form.email.trim()) nextErrors.email = enterField('email address');
+    else if (!isValidEmail(form.email)) nextErrors.email = 'Enter a valid email address.';
+    if (!form.joiningDate) nextErrors.joiningDate = enterField('joining date');
+    if (!form.schoolId) nextErrors.schoolId = 'Select a school.';
+    if (!form.assignedClasses.trim()) nextErrors.assignedClasses = enterField('assigned classes');
+    setErrors(nextErrors);
+    if (hasFieldErrors(nextErrors)) return;
+
+    const classes = form.assignedClasses
+      .split(',')
+      .map((c) => c.trim())
+      .filter(Boolean);
+    const photoUrl = form.photoUrl.trim() || undefined;
+
+    setTeacher((prev) =>
+      prev
+        ? {
+            ...prev,
+            name: form.name.trim(),
+            mobile: form.mobile.trim(),
+            email: form.email.trim(),
+            qualification: form.qualification.trim(),
+            joiningDate: form.joiningDate,
+            schoolId: form.schoolId,
+            assignedClasses: classes.length ? classes : prev.assignedClasses,
+            active: form.active,
+            photoUrl,
+          }
+        : prev,
+    );
+    closeEdit();
+  };
+
+  return (
+    <div className="w-full">
+      <nav aria-label="Breadcrumb" className="mb-3 sm:mb-4">
+        <ol className="flex flex-wrap items-center gap-1.5 text-sm">
+          <li>
+            <Link
+              to="/admin/teachers"
+              className="font-medium text-sky-700 underline decoration-sky-700/30 underline-offset-2 transition hover:text-sky-800 dark:text-sky-400 dark:decoration-sky-400/40 dark:hover:text-sky-300"
+            >
+              Teachers
+            </Link>
+          </li>
+          <li aria-hidden className="text-slate-300 dark:text-slate-600">
+            <IconChevronRight className="h-3.5 w-3.5" />
+          </li>
+          <li className="min-w-0 truncate font-medium text-slate-700 dark:text-slate-200">
+            Employee details
+          </li>
+        </ol>
+      </nav>
+
+      <PageHeader
+        title={teacher.name}
+        description={`${teacher.employeeId} · ${school?.name ?? 'Unassigned school'}`}
+        actions={
+          <>
+            <Badge tone={teacher.active ? 'success' : 'danger'}>
+              {teacher.active ? 'Active' : 'Inactive'}
+            </Badge>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setTempPassword(null);
+                setResetOpen(true);
+              }}
+            >
+              Reset password
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setStatusConfirm(true)}>
+              {teacher.active ? 'Deactivate login' : 'Activate login'}
+            </Button>
+            <Button type="button" variant="primary" onClick={openEdit}>
+              Edit teacher
+            </Button>
+          </>
+        }
+      />
+
+      <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Classes"
+          value={teacher.assignedClasses.length}
+          hint={
+            teacher.assignedClasses.length
+              ? teacher.assignedClasses.join(', ')
+              : 'No classes assigned'
+          }
+          accent="sky"
+          icon={<IconBook className="h-4 w-4" />}
+        />
+        <StatCard
+          label="School"
+          value={school?.district ?? '—'}
+          hint={school?.name ?? 'Not assigned'}
+          accent="emerald"
+          icon={<IconSchool className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Joined"
+          value={teacher.joiningDate.slice(0, 4)}
+          hint={joiningLabel}
+          accent="brand"
+          icon={<IconCalendar className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Leave requests"
+          value={teacherLeaves.length}
+          hint={
+            pendingLeaves
+              ? `${pendingLeaves} pending`
+              : teacherLeaves.length
+                ? 'No pending requests'
+                : 'No leave history'
+          }
+          accent="amber"
+          icon={<IconClipboard className="h-4 w-4" />}
+        />
+      </section>
+
+      <section className="mb-5 grid gap-4 lg:grid-cols-5">
+        <Card className="lg:col-span-3" padding="lg">
+          <SectionTitle>Employee overview</SectionTitle>
+          <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-start">
+            <TeacherAvatar
+              name={teacher.name}
+              photoUrl={teacher.photoUrl}
+              size="xl"
+              className="mx-auto sm:mx-0"
+            />
+            <div className="min-w-0 flex-1 text-center sm:text-left">
+              <p className="text-base font-semibold text-slate-900 dark:text-slate-50">
+                {teacher.name}
+              </p>
+              <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+                {teacher.qualification || 'Qualification not set'}
+              </p>
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+                <Badge tone={teacher.active ? 'success' : 'danger'}>
+                  {teacher.active ? 'Active' : 'Inactive'}
+                </Badge>
+                <span className="text-xs text-slate-500">ID {teacher.employeeId}</span>
+              </div>
+              <p className="mt-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                Contact {teacher.mobile} · {teacher.email}
+              </p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                School:{' '}
+                {school ? (
+                  <Link
+                    to={`/admin/schools/${school.id}`}
+                    className="font-medium text-sky-700 underline decoration-sky-700/30 underline-offset-2 hover:text-sky-800 dark:text-sky-400 dark:decoration-sky-400/40"
+                  >
+                    {school.name}
+                  </Link>
+                ) : (
+                  'Unassigned'
+                )}
+              </p>
+            </div>
+          </div>
+
+          {teacher.assignedClasses.length > 0 ? (
+            <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Assigned classes
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {teacher.assignedClasses.map((cls) => (
+                  <span
+                    key={cls}
+                    className="rounded-lg bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-800 ring-1 ring-sky-100 dark:bg-sky-500/15 dark:text-sky-200 dark:ring-sky-500/25"
+                  >
+                    Class {cls}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {teacherLeaves.length > 0 ? (
+            <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Recent leave
+              </p>
+              <ul className="space-y-2">
+                {teacherLeaves.slice(0, 3).map((leave) => (
+                  <li
+                    key={leave.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50/90 px-3 py-2 text-sm dark:bg-slate-800/50"
+                  >
+                    <span className="font-medium text-slate-800 dark:text-slate-100">
+                      {leave.type}
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {leave.fromDate} → {leave.toDate} · {leave.status}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </Card>
+
+        <Card className="lg:col-span-2" padding="lg">
+          <SectionTitle>Profile</SectionTitle>
+          <dl className="mt-1 space-y-2.5">
+            {(
+              [
+                ['Employee ID', teacher.employeeId],
+                ['Name', teacher.name],
+                ['Mobile', teacher.mobile],
+                ['Email', teacher.email],
+                ['Qualification', teacher.qualification || '—'],
+                ['Joining Date', joiningLabel],
+                ['Assigned School', school?.name ?? 'Unassigned'],
+                [
+                  'Assigned Classes',
+                  teacher.assignedClasses.length
+                    ? teacher.assignedClasses.join(', ')
+                    : '—',
+                ],
+                ['Login', teacher.active ? 'Active' : 'Inactive'],
+              ] as const
+            ).map(([label, value]) => (
+              <div
+                key={label}
+                className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2 last:border-0 last:pb-0 dark:border-slate-800"
+              >
+                <dt className="text-xs font-medium text-slate-500">{label}</dt>
+                <dd className="text-right text-sm font-medium text-slate-800 dark:text-slate-100">
+                  {value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </Card>
+      </section>
+
+      <Modal
+        open={editOpen}
+        onClose={closeEdit}
+        title="Edit Employee"
+        description="Update teacher profile and school assignment."
+      >
+        <form noValidate onSubmit={handleSave} className="grid gap-3 px-5 py-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <FormField id="detail-tch-photo" label="Profile picture" error={errors.photoUrl}>
+              <div className="relative overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-50 via-white to-sky-50/70 p-4 dark:border-slate-700 dark:from-slate-900/80 dark:via-slate-900/40 dark:to-sky-950/30">
+                <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center">
+                  <input
+                    ref={photoInputRef}
+                    id="detail-tch-photo"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="sr-only"
+                    onChange={handlePhotoChange}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => photoInputRef.current?.click()}
+                    className="group relative mx-auto shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 sm:mx-0"
+                    aria-label={form.photoUrl ? 'Change profile picture' : 'Upload profile picture'}
+                  >
+                    <span className="relative block overflow-hidden rounded-full p-[3px] ring-1 ring-slate-200/90 dark:ring-slate-600">
+                      <TeacherAvatar
+                        name={form.name.trim() || teacher.name}
+                        photoUrl={form.photoUrl || undefined}
+                        size="xl"
+                        className="!ring-0 !shadow-none"
+                      />
+                      <span
+                        className="absolute inset-[3px] grid place-items-center rounded-full bg-slate-950/0 text-white opacity-0 transition-all duration-300 group-hover:bg-slate-950/55 group-hover:opacity-100 group-focus-visible:bg-slate-950/55 group-focus-visible:opacity-100"
+                        aria-hidden
+                      >
+                        <span className="flex flex-col items-center justify-center gap-1 text-center">
+                          <IconImage className="h-4 w-4" />
+                          <span className="text-[0.65rem] font-semibold leading-none whitespace-nowrap">
+                            {form.photoUrl ? 'Change photo' : 'Upload photo'}
+                          </span>
+                        </span>
+                      </span>
+                    </span>
+                  </button>
+                  <div className="min-w-0 flex-1 text-center sm:text-left">
+                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                      {form.photoUrl ? 'Photo ready' : 'Add a profile photo'}
+                    </p>
+                    <p className="mt-1 text-[0.75rem] text-slate-500">
+                      Hover the photo to upload or change. Max 2&nbsp;MB.
+                    </p>
+                    {form.photoUrl ? (
+                      <button
+                        type="button"
+                        onClick={clearPhoto}
+                        className="mt-2.5 text-[0.75rem] font-semibold text-rose-600 hover:text-rose-700 dark:text-rose-400"
+                      >
+                        Remove photo
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            </FormField>
+          </div>
+          <div className="sm:col-span-2">
+            <FormField id="detail-tch-name" label="Name" required error={errors.name}>
+              <Input
+                value={form.name}
+                onChange={(e) => setTeacherField('name', e.target.value)}
+                placeholder="Full name"
+              />
+            </FormField>
+          </div>
+          <FormField id="detail-tch-mobile" label="Mobile" required error={errors.mobile}>
+            <Input
+              value={form.mobile}
+              onChange={(e) => setTeacherField('mobile', e.target.value)}
+              placeholder="10-digit mobile"
+            />
+          </FormField>
+          <FormField id="detail-tch-email" label="Email (login)" required error={errors.email}>
+            <Input
+              type="email"
+              value={form.email}
+              onChange={(e) => setTeacherField('email', e.target.value)}
+              placeholder="teacher@example.org"
+            />
+          </FormField>
+          <FormField id="detail-tch-qual" label="Qualification">
+            <Input
+              value={form.qualification}
+              onChange={(e) => setTeacherField('qualification', e.target.value)}
+              placeholder="e.g. B.Ed, MCA"
+            />
+          </FormField>
+          <FormField id="detail-tch-join" label="Joining Date" required error={errors.joiningDate}>
+            <Input
+              type="date"
+              value={form.joiningDate}
+              onChange={(e) => setTeacherField('joiningDate', e.target.value)}
+            />
+          </FormField>
+          <FormField id="detail-tch-school" label="Assign School" required error={errors.schoolId}>
+            <select
+              className="field-control w-full"
+              value={form.schoolId}
+              onChange={(e) => setTeacherField('schoolId', e.target.value)}
+            >
+              <option value="">Select school</option>
+              {schools.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </FormField>
+          <FormField
+            id="detail-tch-classes"
+            label="Assign Classes"
+            required
+            error={errors.assignedClasses}
+          >
+            <Input
+              value={form.assignedClasses}
+              onChange={(e) => setTeacherField('assignedClasses', e.target.value)}
+              placeholder="e.g. 6, 7, 8"
+            />
+          </FormField>
+          <div className="sm:col-span-2">
+            <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/50">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-400"
+                checked={form.active}
+                onChange={(e) => setForm((prev) => ({ ...prev, active: e.target.checked }))}
+              />
+              <span className="text-sm text-slate-700 dark:text-slate-200">
+                Login active (teacher can sign in to the portal)
+              </span>
+            </label>
+          </div>
+          <div className="sm:col-span-2 flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+            <Button type="button" variant="ghost" onClick={closeEdit}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary">
+              Update Teacher
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={resetOpen}
+        onClose={() => {
+          setResetOpen(false);
+          setTempPassword(null);
+        }}
+        title={tempPassword ? 'Password reset' : 'Reset password'}
+        description={
+          tempPassword
+            ? 'Share this temporary password securely with the teacher.'
+            : `Generate a new temporary password for ${teacher.name} (${teacher.email})?`
+        }
+      >
+        <div className="space-y-3 px-5 py-4">
+          {tempPassword ? (
+            <dl className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/50">
+              <div className="flex justify-between gap-3">
+                <dt className="text-slate-500">Email</dt>
+                <dd className="font-medium">{teacher.email}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-slate-500">Temp password</dt>
+                <dd className="font-mono font-semibold text-sky-700 dark:text-sky-300">
+                  {tempPassword}
+                </dd>
+              </div>
+            </dl>
+          ) : (
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              The teacher will use this password on their next sign-in.
+            </p>
+          )}
+          <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+            {tempPassword ? (
+              <Button
+                type="button"
+                variant="primary"
+                onClick={() => {
+                  setResetOpen(false);
+                  setTempPassword(null);
+                }}
+              >
+                Done
+              </Button>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setResetOpen(false);
+                    setTempPassword(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  onClick={() => setTempPassword(mockTempPassword())}
+                >
+                  Reset password
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      <ConfirmDialog
+        open={statusConfirm}
+        title={teacher.active ? 'Deactivate login' : 'Activate login'}
+        description={
+          teacher.active
+            ? `${teacher.name} will be marked inactive and lose portal access for operations.`
+            : `${teacher.name} will be marked active and can use the teacher portal again.`
+        }
+        confirmLabel={teacher.active ? 'Deactivate' : 'Activate'}
+        confirmVariant={teacher.active ? 'destructive' : 'primary'}
+        onClose={() => setStatusConfirm(false)}
+        onConfirm={() => {
+          setTeacher((prev) => (prev ? { ...prev, active: !prev.active } : prev));
+        }}
+      />
+    </div>
   );
 }
 
@@ -1339,6 +2714,14 @@ export function AdminSponsorsPage() {
   const [deleteSponsorId, setDeleteSponsorId] = useState<string | null>(null);
   const [sponsorForm, setSponsorForm] = useState(emptySponsorForm);
   const [errors, setErrors] = useState<FieldErrors>({});
+  const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
+  const orgSuggestRef = useRef<HTMLDivElement>(null);
+  /** Assign popup — create-new vs pick existing (concept layout) */
+  const [assignNewForm, setAssignNewForm] = useState(emptySponsorForm);
+  const [assignErrors, setAssignErrors] = useState<FieldErrors>({});
+  const [assignOrgOpen, setAssignOrgOpen] = useState(false);
+  const assignOrgRef = useRef<HTMLDivElement>(null);
+  const [assignPanelOpen, setAssignPanelOpen] = useState(true);
 
   const unassignedCount = schoolList.filter((s) => !s.sponsorId).length;
   const assignedCount = schoolList.filter((s) => s.sponsorId).length;
@@ -1375,24 +2758,61 @@ export function AdminSponsorsPage() {
   const openAssign = (school: School) => {
     setAssigning(school);
     setSelectedSponsorId(school.sponsorId ?? '');
+    setAssignNewForm(emptySponsorForm);
+    setAssignErrors({});
+    setAssignOrgOpen(false);
+    setAssignPanelOpen(true);
   };
 
   const closeAssign = () => {
     setAssigning(null);
     setSelectedSponsorId('');
+    setAssignNewForm(emptySponsorForm);
+    setAssignErrors({});
+    setAssignOrgOpen(false);
+    setAssignPanelOpen(true);
   };
+
+  const setAssignNewField = (key: keyof typeof emptySponsorForm, value: string) => {
+    setAssignNewForm((prev) => ({ ...prev, [key]: value }));
+    setAssignErrors((prev) => clearFieldError(prev, key));
+    if (key === 'organization') setAssignOrgOpen(true);
+  };
+
+  const assignOrgSuggestions = (() => {
+    const q = assignNewForm.organization.trim().toLowerCase();
+    const byOrg = new Map<string, string[]>();
+    for (const sponsor of sponsorList) {
+      const org = sponsor.organization.trim();
+      if (!org) continue;
+      const schools = byOrg.get(org) ?? [];
+      for (const school of schoolList) {
+        if (school.sponsorId === sponsor.id && !schools.includes(school.name)) {
+          schools.push(school.name);
+        }
+      }
+      byOrg.set(org, schools);
+    }
+    return [...byOrg.entries()]
+      .map(([organization, schools]) => ({ organization, schools: schools.sort() }))
+      .filter(({ organization }) => (q ? organization.toLowerCase().includes(q) : true))
+      .sort((a, b) => a.organization.localeCompare(b.organization))
+      .slice(0, 8);
+  })();
 
   const closeSponsorModal = () => {
     setSponsorModalOpen(false);
     setEditingSponsorId(null);
     setSponsorForm(emptySponsorForm);
     setErrors({});
+    setOrgDropdownOpen(false);
   };
 
   const openCreateSponsor = () => {
     setEditingSponsorId(null);
     setSponsorForm(emptySponsorForm);
     setErrors({});
+    setOrgDropdownOpen(false);
     setSponsorModalOpen(true);
   };
 
@@ -1406,13 +2826,65 @@ export function AdminSponsorsPage() {
       address: sponsor.address,
     });
     setErrors({});
+    setOrgDropdownOpen(false);
     setSponsorModalOpen(true);
   };
 
   const setSponsorField = (key: keyof typeof emptySponsorForm, value: string) => {
     setSponsorForm((prev) => ({ ...prev, [key]: value }));
     touchField(setErrors, key);
+    if (key === 'organization') setOrgDropdownOpen(true);
   };
+
+  /** Unique organizations + linked school names for Organization autosuggest */
+  const organizationSuggestions = (() => {
+    const q = sponsorForm.organization.trim().toLowerCase();
+    const byOrg = new Map<string, string[]>();
+
+    for (const sponsor of sponsorList) {
+      const org = sponsor.organization.trim();
+      if (!org) continue;
+      const schools = byOrg.get(org) ?? [];
+      for (const school of schoolList) {
+        if (school.sponsorId === sponsor.id && !schools.includes(school.name)) {
+          schools.push(school.name);
+        }
+      }
+      byOrg.set(org, schools);
+    }
+
+    return [...byOrg.entries()]
+      .map(([organization, schools]) => ({ organization, schools: schools.sort() }))
+      .filter(({ organization }) =>
+        q ? organization.toLowerCase().includes(q) : true,
+      )
+      .sort((a, b) => a.organization.localeCompare(b.organization))
+      .slice(0, 8);
+  })();
+
+  useEffect(() => {
+    if (!orgDropdownOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const el = orgSuggestRef.current;
+      if (el && !el.contains(event.target as Node)) {
+        setOrgDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [orgDropdownOpen]);
+
+  useEffect(() => {
+    if (!assignOrgOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const el = assignOrgRef.current;
+      if (el && !el.contains(event.target as Node)) {
+        setAssignOrgOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [assignOrgOpen]);
 
   const handleSponsorSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -1456,13 +2928,72 @@ export function AdminSponsorsPage() {
   const applySponsor = (e: FormEvent) => {
     e.preventDefault();
     if (!assigning) return;
-    const nextSponsorId = selectedSponsorId || undefined;
+
+    // Prefer existing selection over create-new fields
+    if (selectedSponsorId) {
+      setSchoolList((prev) => {
+        const nextSchools = prev.map((s) =>
+          s.id === assigning.id ? { ...s, sponsorId: selectedSponsorId } : s,
+        );
+        setSponsorList((prevSponsors) => rebuildSponsorSchools(nextSchools, prevSponsors));
+        return nextSchools;
+      });
+      closeAssign();
+      return;
+    }
+
+    const hasNewInput = Object.values(assignNewForm).some((v) => v.trim());
+    if (!hasNewInput) {
+      // Clear assignment
+      setSchoolList((prev) => {
+        const nextSchools = prev.map((s) =>
+          s.id === assigning.id ? { ...s, sponsorId: undefined } : s,
+        );
+        setSponsorList((prevSponsors) => rebuildSponsorSchools(nextSchools, prevSponsors));
+        return nextSchools;
+      });
+      closeAssign();
+      return;
+    }
+
+    const nextErrors: FieldErrors = {};
+    if (!assignNewForm.name.trim()) nextErrors.name = enterField('sponsor name');
+    if (!assignNewForm.organization.trim()) {
+      nextErrors.organization = enterField('organization');
+    }
+    if (!assignNewForm.phone.trim()) nextErrors.phone = enterField('phone number');
+    else if (!isValidIndianPhone(assignNewForm.phone)) {
+      nextErrors.phone = 'Enter a valid 10-digit Indian mobile number.';
+    }
+    if (!assignNewForm.email.trim()) nextErrors.email = enterField('email address');
+    else if (!isValidEmail(assignNewForm.email)) {
+      nextErrors.email = 'Enter a valid email address.';
+    }
+    if (!assignNewForm.address.trim()) nextErrors.address = enterField('address');
+    setAssignErrors(nextErrors);
+    if (hasFieldErrors(nextErrors)) {
+      setAssignPanelOpen(true);
+      return;
+    }
+
+    const newSponsor: SponsorProfile = {
+      id: `usr_sponsor_${Date.now()}`,
+      name: assignNewForm.name.trim(),
+      email: assignNewForm.email.trim(),
+      phone: assignNewForm.phone.trim(),
+      organization: assignNewForm.organization.trim(),
+      address: assignNewForm.address.trim(),
+      active: true,
+      schoolIds: [assigning.id],
+    };
 
     setSchoolList((prev) => {
       const nextSchools = prev.map((s) =>
-        s.id === assigning.id ? { ...s, sponsorId: nextSponsorId } : s,
+        s.id === assigning.id ? { ...s, sponsorId: newSponsor.id } : s,
       );
-      setSponsorList((prevSponsors) => rebuildSponsorSchools(nextSchools, prevSponsors));
+      setSponsorList((prevSponsors) =>
+        rebuildSponsorSchools(nextSchools, [newSponsor, ...prevSponsors]),
+      );
       return nextSchools;
     });
     closeAssign();
@@ -1705,7 +3236,12 @@ export function AdminSponsorsPage() {
             : 'Enter sponsor details to add them to the trust network.'
         }
       >
-        <form noValidate onSubmit={handleSponsorSubmit} className="px-5 py-4">
+        <form
+          noValidate
+          autoComplete="off"
+          onSubmit={handleSponsorSubmit}
+          className="px-5 py-4"
+        >
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <FormField id="sponsor-name" label="Sponsor name" required error={errors.name}>
@@ -1713,21 +3249,75 @@ export function AdminSponsorsPage() {
                   value={sponsorForm.name}
                   onChange={(e) => setSponsorField('name', e.target.value)}
                   placeholder="e.g. Ananya Mehta"
+                  autoComplete="off"
                 />
               </FormField>
             </div>
             <FormField id="sponsor-org" label="Organization" required error={errors.organization}>
-              <Input
-                value={sponsorForm.organization}
-                onChange={(e) => setSponsorField('organization', e.target.value)}
-                placeholder="Organization or foundation"
-              />
+              <div ref={orgSuggestRef} className="relative">
+                <Input
+                  type="search"
+                  value={sponsorForm.organization}
+                  onChange={(e) => setSponsorField('organization', e.target.value)}
+                  onFocus={() => setOrgDropdownOpen(true)}
+                  placeholder="Search or type organization"
+                  /* Block Chrome/browser address autofill so only our list shows */
+                  name="cst_sponsor_org_lookup"
+                  autoComplete="new-password"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-form-type="other"
+                  data-bwignore="true"
+                  role="combobox"
+                  aria-expanded={orgDropdownOpen}
+                  aria-controls="sponsor-org-suggestions"
+                  aria-autocomplete="list"
+                />
+                {orgDropdownOpen && organizationSuggestions.length > 0 ? (
+                  <ul
+                    id="sponsor-org-suggestions"
+                    role="listbox"
+                    className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-20 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-900"
+                  >
+                    {organizationSuggestions.map(({ organization, schools }) => (
+                      <li key={organization} role="option">
+                        <button
+                          type="button"
+                          className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition hover:bg-sky-50 dark:hover:bg-sky-500/10"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setSponsorField('organization', organization);
+                            setOrgDropdownOpen(false);
+                          }}
+                        >
+                          <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                            {organization}
+                          </span>
+                          {schools.length > 0 ? (
+                            <span className="text-[0.7rem] leading-snug text-slate-500 dark:text-slate-400">
+                              Schools: {schools.join(', ')}
+                            </span>
+                          ) : (
+                            <span className="text-[0.7rem] text-slate-400">
+                              No schools assigned yet
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
             </FormField>
             <FormField id="sponsor-phone" label="Phone" required error={errors.phone}>
               <Input
                 value={sponsorForm.phone}
                 onChange={(e) => setSponsorField('phone', e.target.value)}
                 placeholder="10-digit mobile"
+                autoComplete="off"
               />
             </FormField>
             <div className="sm:col-span-2">
@@ -1737,6 +3327,7 @@ export function AdminSponsorsPage() {
                   value={sponsorForm.email}
                   onChange={(e) => setSponsorField('email', e.target.value)}
                   placeholder="sponsor@example.org"
+                  autoComplete="off"
                 />
               </FormField>
             </div>
@@ -1746,6 +3337,7 @@ export function AdminSponsorsPage() {
                   value={sponsorForm.address}
                   onChange={(e) => setSponsorField('address', e.target.value)}
                   placeholder="Street, city, state, PIN"
+                  autoComplete="off"
                 />
               </FormField>
             </div>
@@ -1768,10 +3360,11 @@ export function AdminSponsorsPage() {
         description={
           assigning
             ? `Choose a sponsor for ${assigning.name} (${assigning.district}).`
-            : 'Select a sponsor for this school.'
+            : 'Select or create a sponsor for this school.'
         }
+        className="max-w-xl"
       >
-        <form onSubmit={applySponsor} className="px-5 py-4">
+        <form noValidate autoComplete="off" onSubmit={applySponsor} className="px-5 py-4">
           {assigning ? (
             <div className="mb-4 rounded-lg border border-slate-100 bg-slate-50 px-3.5 py-3 dark:border-slate-800 dark:bg-slate-800/50">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -1785,22 +3378,190 @@ export function AdminSponsorsPage() {
               </p>
             </div>
           ) : null}
-          <FormField id="assign-sponsor" label="Sponsor">
-            <select
-              className="field-control w-full"
-              value={selectedSponsorId}
-              onChange={(e) => setSelectedSponsorId(e.target.value)}
-            >
-              <option value="">Unassigned</option>
-              {sponsorList
-                .filter((s) => s.active)
-                .map((sponsor) => (
-                  <option key={sponsor.id} value={sponsor.id}>
-                    {sponsor.name} — {sponsor.organization}
-                  </option>
-                ))}
-            </select>
-          </FormField>
+
+          {/* Concept layout: Add Sponsor accordion */}
+          <div>
+            <div className="flex items-center gap-1.5 border-b border-slate-200 pb-2.5 dark:border-slate-700">
+              <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                Add Sponsor
+              </span>
+              <button
+                type="button"
+                onClick={() => setAssignPanelOpen((v) => !v)}
+                aria-expanded={assignPanelOpen}
+                aria-controls="assign-sponsor-panel"
+                title={assignPanelOpen ? 'Hide sponsor form' : 'Show sponsor form'}
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 dark:text-slate-400 dark:hover:bg-slate-800"
+              >
+                <IconChevronRight
+                  className={`h-4 w-4 transition-transform duration-200 ${
+                    assignPanelOpen ? 'rotate-90' : ''
+                  }`}
+                />
+              </button>
+            </div>
+
+            {assignPanelOpen ? (
+              <div
+                id="assign-sponsor-panel"
+                className="mt-3 rounded-lg bg-slate-50/90 px-3 py-3 dark:bg-slate-800/50"
+              >
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <FormField id="assign-existing-sponsor" label="Existing sponsor">
+                      <select
+                        className="field-control w-full"
+                        value={selectedSponsorId}
+                        onChange={(e) => {
+                          setSelectedSponsorId(e.target.value);
+                          if (e.target.value) {
+                            setAssignNewForm(emptySponsorForm);
+                            setAssignErrors({});
+                          }
+                        }}
+                      >
+                        <option value="">None — create new below (optional)</option>
+                        {sponsorList
+                          .filter((s) => s.active)
+                          .map((sponsor) => (
+                            <option key={sponsor.id} value={sponsor.id}>
+                              {sponsor.name}
+                              {sponsor.organization ? ` · ${sponsor.organization}` : ''}
+                            </option>
+                          ))}
+                      </select>
+                    </FormField>
+                    <p className="mt-1.5 text-[0.7rem] text-slate-500 dark:text-slate-400">
+                      Choose an existing sponsor, or fill the fields below to add a new one.
+                    </p>
+                  </div>
+
+                  {!selectedSponsorId ? (
+                    <>
+                      <div className="sm:col-span-2">
+                        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                          New sponsor details
+                        </p>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <FormField
+                          id="assign-sponsor-name"
+                          label="Sponsor name"
+                          error={assignErrors.name}
+                        >
+                          <Input
+                            value={assignNewForm.name}
+                            onChange={(e) => setAssignNewField('name', e.target.value)}
+                            placeholder="Full name"
+                            autoComplete="off"
+                          />
+                        </FormField>
+                      </div>
+                      <FormField
+                        id="assign-sponsor-email"
+                        label="Email"
+                        error={assignErrors.email}
+                      >
+                        <Input
+                          type="email"
+                          value={assignNewForm.email}
+                          onChange={(e) => setAssignNewField('email', e.target.value)}
+                          placeholder="sponsor@example.com"
+                          autoComplete="off"
+                        />
+                      </FormField>
+                      <FormField
+                        id="assign-sponsor-phone"
+                        label="Phone"
+                        error={assignErrors.phone}
+                      >
+                        <Input
+                          value={assignNewForm.phone}
+                          onChange={(e) => setAssignNewField('phone', e.target.value)}
+                          placeholder="10-digit mobile"
+                          autoComplete="off"
+                        />
+                      </FormField>
+                      <FormField
+                        id="assign-sponsor-org"
+                        label="Organization"
+                        error={assignErrors.organization}
+                      >
+                        <div ref={assignOrgRef} className="relative">
+                          <Input
+                            type="search"
+                            value={assignNewForm.organization}
+                            onChange={(e) => setAssignNewField('organization', e.target.value)}
+                            onFocus={() => setAssignOrgOpen(true)}
+                            placeholder="Organization"
+                            name="cst_assign_org_lookup"
+                            autoComplete="new-password"
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck={false}
+                            data-lpignore="true"
+                            data-1p-ignore="true"
+                            data-form-type="other"
+                            role="combobox"
+                            aria-expanded={assignOrgOpen}
+                            aria-controls="assign-org-suggestions"
+                            aria-autocomplete="list"
+                          />
+                          {assignOrgOpen && assignOrgSuggestions.length > 0 ? (
+                            <ul
+                              id="assign-org-suggestions"
+                              role="listbox"
+                              className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-20 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-900"
+                            >
+                              {assignOrgSuggestions.map(({ organization, schools }) => (
+                                <li key={organization} role="option">
+                                  <button
+                                    type="button"
+                                    className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition hover:bg-sky-50 dark:hover:bg-sky-500/10"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      setAssignNewField('organization', organization);
+                                      setAssignOrgOpen(false);
+                                    }}
+                                  >
+                                    <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                                      {organization}
+                                    </span>
+                                    {schools.length > 0 ? (
+                                      <span className="text-[0.7rem] leading-snug text-slate-500 dark:text-slate-400">
+                                        Schools: {schools.join(', ')}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[0.7rem] text-slate-400">
+                                        No schools assigned yet
+                                      </span>
+                                    )}
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      </FormField>
+                      <FormField
+                        id="assign-sponsor-address"
+                        label="Address"
+                        error={assignErrors.address}
+                      >
+                        <Input
+                          value={assignNewForm.address}
+                          onChange={(e) => setAssignNewField('address', e.target.value)}
+                          placeholder="Address"
+                          autoComplete="off"
+                        />
+                      </FormField>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
           <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
             <Button type="button" variant="ghost" onClick={closeAssign}>
               Cancel
@@ -1825,6 +3586,7 @@ export function AdminSponsorsPage() {
 
 type AttendanceRow = {
   id: string;
+  date: string;
   teacher: string;
   school: string;
   clockIn: string;
@@ -1833,6 +3595,20 @@ type AttendanceRow = {
   outLocation: string;
   hours: string;
 };
+
+function attendanceDayStatus(rows: AttendanceRow[]): 'complete' | 'partial' | 'none' {
+  if (!rows.length) return 'none';
+  const incomplete = rows.some((r) => !r.clockOut || r.clockOut === '—' || r.hours === 'In progress');
+  return incomplete ? 'partial' : 'complete';
+}
+
+function pad2(n: number) {
+  return String(n).padStart(2, '0');
+}
+
+function formatDateKey(year: number, month: number, day: number) {
+  return `${year}-${pad2(month + 1)}-${pad2(day)}`;
+}
 
 function AttendanceHoursCell({
   hours,
@@ -1926,13 +3702,31 @@ function AttendanceHoursCell({
                     <IconMapPin className="h-3 w-3" />
                     GPS locations
                   </span>
-                  <span className="relative block text-xs leading-relaxed text-slate-600 dark:text-slate-300">
-                    <span className="font-semibold text-slate-800 dark:text-slate-100">In:</span>{' '}
-                    {hasIn ? inLocation : '—'}
+                  <span className="relative flex items-start gap-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                    <span
+                      className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-md bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200/80 dark:bg-emerald-500/15 dark:text-emerald-400 dark:ring-emerald-500/30"
+                      aria-hidden
+                    >
+                      <IconMapPin className="h-3 w-3" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                        In:
+                      </span>{' '}
+                      {hasIn ? inLocation : '—'}
+                    </span>
                   </span>
-                  <span className="relative mt-1 block text-xs leading-relaxed text-slate-600 dark:text-slate-300">
-                    <span className="font-semibold text-slate-800 dark:text-slate-100">Out:</span>{' '}
-                    {hasOut ? outLocation : '—'}
+                  <span className="relative mt-1.5 flex items-start gap-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                    <span
+                      className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-md bg-rose-50 text-rose-600 ring-1 ring-rose-200/80 dark:bg-rose-500/15 dark:text-rose-400 dark:ring-rose-500/30"
+                      aria-hidden
+                    >
+                      <IconMapPin className="h-3 w-3" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="font-semibold text-rose-700 dark:text-rose-400">Out:</span>{' '}
+                      {hasOut ? outLocation : '—'}
+                    </span>
                   </span>
                 </span>,
                 document.body,
@@ -1944,9 +3738,199 @@ function AttendanceHoursCell({
   );
 }
 
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+
+function TeacherAttendanceCalendar({
+  monthDate,
+  onMonthChange,
+  selectedDate,
+  onSelectDate,
+  rowsByDate,
+}: {
+  monthDate: Date;
+  onMonthChange: (next: Date) => void;
+  selectedDate: string;
+  onSelectDate: (dateKey: string) => void;
+  rowsByDate: Map<string, AttendanceRow[]>;
+}) {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const todayKey = formatDateKey(
+    new Date().getFullYear(),
+    new Date().getMonth(),
+    new Date().getDate(),
+  );
+  const monthLabel = new Intl.DateTimeFormat('en-IN', {
+    month: 'long',
+    year: 'numeric',
+  }).format(monthDate);
+
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells: Array<{ key: string; day: number } | null> = [];
+  for (let i = 0; i < firstWeekday; i += 1) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    cells.push({ key: formatDateKey(year, month, day), day });
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const shiftMonth = (delta: number) => {
+    onMonthChange(new Date(year, month + delta, 1));
+  };
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-200/90 bg-white dark:border-slate-700 dark:bg-slate-900/60">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 via-white to-sky-50/60 px-4 py-3 dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-sky-950/30">
+        <div className="flex items-center gap-2">
+          <span className="grid h-9 w-9 place-items-center rounded-lg bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
+            <IconCalendar className="h-4 w-4" />
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">{monthLabel}</p>
+            <p className="text-[0.7rem] text-slate-500">Monthly attendance map</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => shiftMonth(-1)}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+            aria-label="Previous month"
+          >
+            <IconChevronLeft className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const now = new Date();
+              onMonthChange(new Date(now.getFullYear(), now.getMonth(), 1));
+              onSelectDate(
+                formatDateKey(now.getFullYear(), now.getMonth(), now.getDate()),
+              );
+            }}
+            className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+          >
+            Today
+          </button>
+          <button
+            type="button"
+            onClick={() => shiftMonth(1)}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+            aria-label="Next month"
+          >
+            <IconChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-900/80">
+        {WEEKDAYS.map((d) => (
+          <div
+            key={d}
+            className="px-1 py-2 text-center text-[0.65rem] font-semibold uppercase tracking-wider text-slate-500"
+          >
+            {d}
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 auto-rows-fr">
+        {cells.map((cell, idx) => {
+          if (!cell) {
+            return (
+              <div
+                key={`empty-${idx}`}
+                className="min-h-[4.25rem] border-b border-r border-slate-100 bg-slate-50/40 dark:border-slate-800 dark:bg-slate-950/30"
+              />
+            );
+          }
+          const dayRows = rowsByDate.get(cell.key) ?? [];
+          const status = attendanceDayStatus(dayRows);
+          const isSelected = cell.key === selectedDate;
+          const isToday = cell.key === todayKey;
+          const isWeekend = idx % 7 === 0 || idx % 7 === 6;
+
+          return (
+            <button
+              key={cell.key}
+              type="button"
+              onClick={() => onSelectDate(cell.key)}
+              className={[
+                'group relative flex min-h-[4.25rem] flex-col items-start gap-1 border-b border-r border-slate-100 p-1.5 text-left transition sm:p-2 dark:border-slate-800',
+                isWeekend ? 'bg-slate-50/50 dark:bg-slate-950/20' : 'bg-white dark:bg-slate-900/40',
+                isSelected
+                  ? 'z-[1] bg-sky-50 ring-2 ring-inset ring-sky-400 dark:bg-sky-500/10 dark:ring-sky-500'
+                  : 'hover:bg-sky-50/70 dark:hover:bg-sky-500/5',
+              ].join(' ')}
+            >
+              <span className="flex w-full items-center justify-between gap-1">
+                <span
+                  className={[
+                    'inline-flex h-7 min-w-7 items-center justify-center rounded-full text-xs font-semibold',
+                    isToday
+                      ? 'bg-brand-500 text-white shadow-sm'
+                      : isSelected
+                        ? 'bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-200'
+                        : 'text-slate-700 group-hover:text-slate-900 dark:text-slate-200',
+                  ].join(' ')}
+                >
+                  {cell.day}
+                </span>
+                {dayRows.length > 0 ? (
+                  <span className="hidden text-[0.62rem] font-semibold text-slate-400 sm:inline">
+                    {dayRows.length}
+                  </span>
+                ) : null}
+              </span>
+              {status !== 'none' ? (
+                <span className="mt-auto flex w-full flex-wrap items-center gap-1">
+                  <span
+                    className={[
+                      'h-1.5 w-1.5 rounded-full sm:h-2 sm:w-2',
+                      status === 'complete'
+                        ? 'bg-emerald-500'
+                        : 'bg-amber-500',
+                    ].join(' ')}
+                  />
+                  <span
+                    className={[
+                      'hidden truncate text-[0.62rem] font-medium sm:inline',
+                      status === 'complete'
+                        ? 'text-emerald-700 dark:text-emerald-400'
+                        : 'text-amber-700 dark:text-amber-400',
+                    ].join(' ')}
+                  >
+                    {status === 'complete' ? 'Complete' : 'Open'}
+                  </span>
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-4 border-t border-slate-100 px-4 py-3 dark:border-slate-800">
+        <span className="inline-flex items-center gap-1.5 text-[0.7rem] text-slate-500">
+          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+          Complete day
+        </span>
+        <span className="inline-flex items-center gap-1.5 text-[0.7rem] text-slate-500">
+          <span className="h-2 w-2 rounded-full bg-amber-500" />
+          In progress
+        </span>
+        <span className="inline-flex items-center gap-1.5 text-[0.7rem] text-slate-500">
+          <span className="h-2 w-2 rounded-full bg-brand-500" />
+          Today
+        </span>
+      </div>
+    </div>
+  );
+}
+
 const seedTeacherAttendance: AttendanceRow[] = [
   {
     id: 'ta_01',
+    date: '2026-08-04',
     teacher: 'Priya Sharma',
     school: 'ZPHS Vijayawada East',
     clockIn: '09:05',
@@ -1957,6 +3941,7 @@ const seedTeacherAttendance: AttendanceRow[] = [
   },
   {
     id: 'ta_02',
+    date: '2026-08-04',
     teacher: 'Ravi Kumar',
     school: 'ZPHS Guntur West',
     clockIn: '09:12',
@@ -1965,11 +3950,60 @@ const seedTeacherAttendance: AttendanceRow[] = [
     outLocation: '—',
     hours: 'In progress',
   },
+  {
+    id: 'ta_03',
+    date: '2026-08-03',
+    teacher: 'Priya Sharma',
+    school: 'ZPHS Vijayawada East',
+    clockIn: '08:58',
+    inLocation: '16.5062° N, 80.6480° E',
+    clockOut: '16:35',
+    outLocation: '16.5062° N, 80.6481° E',
+    hours: '7h 37m',
+  },
+  {
+    id: 'ta_04',
+    date: '2026-08-03',
+    teacher: 'Ravi Kumar',
+    school: 'ZPHS Guntur West',
+    clockIn: '09:02',
+    inLocation: '16.3067° N, 80.4365° E',
+    clockOut: '16:50',
+    outLocation: '16.3068° N, 80.4364° E',
+    hours: '7h 48m',
+  },
+  {
+    id: 'ta_05',
+    date: '2026-08-01',
+    teacher: 'Priya Sharma',
+    school: 'ZPHS Vijayawada East',
+    clockIn: '09:10',
+    inLocation: '16.5062° N, 80.6480° E',
+    clockOut: '16:42',
+    outLocation: '16.5061° N, 80.6480° E',
+    hours: '7h 32m',
+  },
+  {
+    id: 'ta_06',
+    date: '2026-08-07',
+    teacher: 'Ravi Kumar',
+    school: 'ZPHS Guntur West',
+    clockIn: '09:00',
+    inLocation: '16.3067° N, 80.4365° E',
+    clockOut: '16:45',
+    outLocation: '16.3067° N, 80.4366° E',
+    hours: '7h 45m',
+  },
 ];
 
 export function AdminTeacherAttendancePage() {
   const [list, setList] = useState<AttendanceRow[]>(() => [...seedTeacherAttendance]);
   const [search, setSearch] = useState('');
+  const [schoolFilter, setSchoolFilter] = useState('');
+  const [teacherFilter, setTeacherFilter] = useState('');
+  const [view, setView] = useState<'table' | 'calendar'>('table');
+  const [selectedDate, setSelectedDate] = useState('2026-08-04');
+  const [monthDate, setMonthDate] = useState(() => new Date(2026, 7, 1));
   const [editing, setEditing] = useState<AttendanceRow | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -1981,18 +4015,63 @@ export function AdminTeacherAttendancePage() {
   });
   const [errors, setErrors] = useState<FieldErrors>({});
 
-  const filtered = list.filter((row) =>
-    matchesSearch(
+  const filtered = list.filter((row) => {
+    if (schoolFilter && row.school !== schoolFilter) return false;
+    if (teacherFilter && row.teacher !== teacherFilter) return false;
+    if (view === 'table' && selectedDate && row.date !== selectedDate) return false;
+    return matchesSearch(
       search,
       row.teacher,
       row.school,
+      row.date,
       row.clockIn,
       row.clockOut,
       row.inLocation,
       row.outLocation,
       row.hours,
-    ),
+    );
+  });
+
+  const calendarFiltered = list.filter((row) => {
+    if (schoolFilter && row.school !== schoolFilter) return false;
+    if (teacherFilter && row.teacher !== teacherFilter) return false;
+    return matchesSearch(
+      search,
+      row.teacher,
+      row.school,
+      row.date,
+      row.clockIn,
+      row.clockOut,
+      row.inLocation,
+      row.outLocation,
+      row.hours,
+    );
+  });
+
+  const rowsByDate = useMemo(() => {
+    const map = new Map<string, AttendanceRow[]>();
+    for (const row of calendarFiltered) {
+      const bucket = map.get(row.date) ?? [];
+      bucket.push(row);
+      map.set(row.date, bucket);
+    }
+    return map;
+  }, [calendarFiltered]);
+
+  const selectedDayRows = (rowsByDate.get(selectedDate) ?? []).filter((row) =>
+    matchesSearch(search, row.teacher, row.school, row.clockIn, row.clockOut, row.hours),
   );
+
+  const selectedDayLabel = useMemo(() => {
+    const [y, m, d] = selectedDate.split('-').map(Number);
+    if (!y || !m || !d) return selectedDate;
+    return new Intl.DateTimeFormat('en-IN', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }).format(new Date(y, m - 1, d));
+  }, [selectedDate]);
 
   const openEdit = (row: AttendanceRow) => {
     setEditing(row);
@@ -2037,77 +4116,259 @@ export function AdminTeacherAttendancePage() {
     closeAttendanceModal();
   };
 
+  const schoolOptions = [...new Set(list.map((r) => r.school))].sort();
+  const teacherOptions = [...new Set(list.map((r) => r.teacher))].sort();
+
   return (
     <AdminShell
       title="Teacher Attendance Monitoring"
-      description="Clock-in / clock-out times and GPS, working hours, daily and monthly history."
+      description="View clock-in / clock-out times and GPS, working hours, attendance history, and monthly attendance. Filter by school, teacher, or date."
       actions={
-        <TableSearch value={search} onChange={setSearch} placeholder="Search attendance…" />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100/80 p-0.5 dark:border-slate-600 dark:bg-slate-800">
+            <button
+              type="button"
+              onClick={() => setView('table')}
+              className={[
+                'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition',
+                view === 'table'
+                  ? 'border-brand-500 bg-white text-brand-700 shadow-sm dark:border-brand-400 dark:bg-slate-700 dark:text-brand-300'
+                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200',
+              ].join(' ')}
+            >
+              <IconHistory className="h-3.5 w-3.5" />
+              History
+            </button>
+            <button
+              type="button"
+              onClick={() => setView('calendar')}
+              className={[
+                'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition',
+                view === 'calendar'
+                  ? 'border-brand-500 bg-white text-brand-700 shadow-sm dark:border-brand-400 dark:bg-slate-700 dark:text-brand-300'
+                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200',
+              ].join(' ')}
+            >
+              <IconCalendar className="h-3.5 w-3.5" />
+              Monthly
+            </button>
+          </div>
+          <TableSearch value={search} onChange={setSearch} placeholder="Search attendance…" />
+        </div>
       }
     >
       <Card className="mb-4">
-        <div className="flex flex-wrap gap-3">
-          <select className="field-control" defaultValue="">
-            <option value="">All schools</option>
-            {schools.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-          <select className="field-control" defaultValue="">
-            <option value="">All teachers</option>
-            {teachers.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-          <input type="date" className="field-control" defaultValue="2026-08-04" />
+        <p className="mb-3 text-[0.95rem] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+          Filters
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="grid min-w-[12rem] flex-1 gap-1.5 sm:max-w-xs">
+            <span className="text-[0.95rem] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+              School
+            </span>
+            <select
+              className="field-control"
+              value={schoolFilter}
+              onChange={(e) => setSchoolFilter(e.target.value)}
+            >
+              <option value="">All schools</option>
+              {schoolOptions.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid min-w-[12rem] flex-1 gap-1.5 sm:max-w-xs">
+            <span className="text-[0.95rem] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+              Teacher
+            </span>
+            <select
+              className="field-control"
+              value={teacherFilter}
+              onChange={(e) => setTeacherFilter(e.target.value)}
+            >
+              <option value="">All teachers</option>
+              {teacherOptions.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid min-w-[10rem] gap-1.5">
+            <span className="text-[0.95rem] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+              Date
+            </span>
+            <input
+              type="date"
+              className="field-control"
+              value={selectedDate}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSelectedDate(value);
+                if (value) {
+                  const [y, m] = value.split('-').map(Number);
+                  if (y && m) setMonthDate(new Date(y, m - 1, 1));
+                }
+              }}
+            />
+          </label>
         </div>
       </Card>
-      <Card padding="none" className="overflow-hidden">
-        <DataTable
-          headers={[
-            'Teacher',
-            'School',
-            'Clock In',
-            'Clock Out',
-            'Hours',
-            { label: 'Actions', className: 'text-right' },
-          ]}
-        >
-          {filtered.length === 0 ? (
-            <tr>
-              <Td className="py-8 text-center text-slate-500" colSpan={6}>
-                No attendance records match your search.
-              </Td>
-            </tr>
-          ) : (
-            filtered.map((row) => (
-              <tr key={row.id}>
-                <Td className="font-medium text-slate-900 dark:text-slate-100">{row.teacher}</Td>
-                <Td>{row.school}</Td>
-                <Td>{row.clockIn}</Td>
-                <Td>{row.clockOut}</Td>
-                <Td>
-                  <AttendanceHoursCell
-                    hours={row.hours}
-                    inLocation={row.inLocation}
-                    outLocation={row.outLocation}
-                  />
-                </Td>
-                <Td className="text-right align-middle">
-                  <TableRowActions
-                    onEdit={() => openEdit(row)}
-                    onDelete={() => setDeleteId(row.id)}
-                  />
+
+      {view === 'calendar' ? (
+        <div className="grid gap-4 lg:grid-cols-5">
+          <div className="lg:col-span-3">
+            <TeacherAttendanceCalendar
+              monthDate={monthDate}
+              onMonthChange={setMonthDate}
+              selectedDate={selectedDate}
+              onSelectDate={setSelectedDate}
+              rowsByDate={rowsByDate}
+            />
+          </div>
+          <Card className="lg:col-span-2" padding="lg">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <SectionTitle>Day details</SectionTitle>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  {selectedDayLabel}
+                </p>
+              </div>
+              <Badge tone={selectedDayRows.length ? 'info' : 'neutral'}>
+                {selectedDayRows.length} record{selectedDayRows.length === 1 ? '' : 's'}
+              </Badge>
+            </div>
+
+            {selectedDayRows.length === 0 ? (
+              <p className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                No clock-in records for this day.
+              </p>
+            ) : (
+              <ul className="mt-4 space-y-3">
+                {selectedDayRows.map((row) => {
+                  const openShift = !row.clockOut || row.clockOut === '—';
+                  return (
+                    <li
+                      key={row.id}
+                      className="rounded-xl border border-slate-200/90 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-slate-800/40"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-slate-900 dark:text-slate-50">
+                            {row.teacher}
+                          </p>
+                          <p className="truncate text-xs text-slate-500">{row.school}</p>
+                        </div>
+                        <Badge tone={openShift ? 'warning' : 'success'}>
+                          {openShift ? 'In progress' : 'Complete'}
+                        </Badge>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                        <div className="rounded-lg bg-emerald-50/80 px-2.5 py-2 dark:bg-emerald-500/10">
+                          <p className="font-semibold text-emerald-700 dark:text-emerald-400">
+                            Clock in
+                          </p>
+                          <p className="mt-0.5 font-medium text-slate-800 dark:text-slate-100">
+                            {row.clockIn}
+                          </p>
+                          <p className="mt-1 text-[0.65rem] leading-snug text-emerald-800/80 dark:text-emerald-300/80">
+                            {row.inLocation !== '—' ? row.inLocation : 'No location'}
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-rose-50/80 px-2.5 py-2 dark:bg-rose-500/10">
+                          <p className="font-semibold text-rose-700 dark:text-rose-400">
+                            Clock out
+                          </p>
+                          <p className="mt-0.5 font-medium text-slate-800 dark:text-slate-100">
+                            {row.clockOut}
+                          </p>
+                          <p className="mt-1 text-[0.65rem] leading-snug text-rose-800/80 dark:text-rose-300/80">
+                            {row.outLocation !== '—' ? row.outLocation : 'No location'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <AttendanceHoursCell
+                          hours={row.hours}
+                          inLocation={row.inLocation}
+                          outLocation={row.outLocation}
+                        />
+                        <TableRowActions
+                          onEdit={() => openEdit(row)}
+                          onDelete={() => setDeleteId(row.id)}
+                        />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Card>
+        </div>
+      ) : (
+        <Card padding="none" className="overflow-hidden">
+          <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+            <h2 className="text-[0.95rem] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+              Attendance history
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Records for {selectedDate} · Use the hours info icon for GPS locations
+            </p>
+          </div>
+          <DataTable
+            headers={[
+              'Teacher',
+              'School',
+              'Clock In',
+              'Clock Out',
+              'Working Hours',
+              { label: 'Actions', className: 'text-right' },
+            ]}
+          >
+            {filtered.length === 0 ? (
+              <tr>
+                <Td className="py-8 text-center text-slate-500" colSpan={6}>
+                  No attendance records match your filters.
                 </Td>
               </tr>
-            ))
-          )}
-        </DataTable>
-      </Card>
+            ) : (
+              filtered.map((row) => (
+                <tr key={row.id}>
+                  <Td className="font-medium text-slate-900 dark:text-slate-100">
+                    {row.teacher}
+                  </Td>
+                  <Td>{row.school}</Td>
+                  <Td>
+                    <span className="font-medium text-emerald-700 dark:text-emerald-400">
+                      {row.clockIn}
+                    </span>
+                  </Td>
+                  <Td>
+                    <span className="font-medium text-rose-700 dark:text-rose-400">
+                      {row.clockOut}
+                    </span>
+                  </Td>
+                  <Td>
+                    <AttendanceHoursCell
+                      hours={row.hours}
+                      inLocation={row.inLocation}
+                      outLocation={row.outLocation}
+                    />
+                  </Td>
+                  <Td className="text-right align-middle">
+                    <TableRowActions
+                      onEdit={() => openEdit(row)}
+                      onDelete={() => setDeleteId(row.id)}
+                    />
+                  </Td>
+                </tr>
+              ))
+            )}
+          </DataTable>
+        </Card>
+      )}
 
       <Modal
         open={Boolean(editing)}
@@ -2179,9 +4440,11 @@ export function AdminTeacherAttendancePage() {
   );
 }
 
+
 export function AdminLeavesPage() {
   const [list, setList] = useState<LeaveRequest[]>(() => [...seedLeaves]);
-  const [search, setSearch] = useState('');
+  const [teacherId, setTeacherId] = useState(teachers[0]?.id ?? '');
+  const [panel, setPanel] = useState<'requests' | 'balance' | 'history'>('requests');
   const [editing, setEditing] = useState<LeaveRequest | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -2192,17 +4455,17 @@ export function AdminLeavesPage() {
   });
   const [errors, setErrors] = useState<FieldErrors>({});
 
-  const filtered = list.filter((leave) =>
-    matchesSearch(
-      search,
-      leave.teacherName,
-      leave.type,
-      leave.fromDate,
-      leave.toDate,
-      leave.reason,
-      leave.status,
-    ),
+  const selectedTeacher = teachers.find((t) => t.id === teacherId);
+  const teacherLeaves = useMemo(
+    () =>
+      list
+        .filter((l) => l.teacherId === teacherId)
+        .sort((a, b) => b.fromDate.localeCompare(a.fromDate)),
+    [list, teacherId],
   );
+  const stats = useMemo(() => computeLeaveStats(teacherLeaves), [teacherLeaves]);
+  const pendingRequests = teacherLeaves.filter((l) => l.status === 'Pending');
+  const historyRows = teacherLeaves;
 
   const openEdit = (leave: LeaveRequest) => {
     setEditing(leave);
@@ -2251,79 +4514,325 @@ export function AdminLeavesPage() {
     setList((prev) => prev.map((l) => (l.id === id ? { ...l, status } : l)));
   };
 
+  const panelTabs: { id: typeof panel; label: string; count?: number }[] = [
+    { id: 'requests', label: 'Leave requests', count: pendingRequests.length },
+    { id: 'balance', label: 'Leave balance' },
+    { id: 'history', label: 'Leave history', count: historyRows.length },
+  ];
+
   return (
     <AdminShell
       title="Teacher Leave Management"
-      description="View leave requests, approve or reject, track balance and history."
-      actions={<TableSearch value={search} onChange={setSearch} placeholder="Search leaves…" />}
+      description="Review a teacher’s leave balances, approve or reject pending requests, and browse full history."
+      actions={
+        <label className="flex min-w-[14rem] flex-col gap-1">
+          <span className="text-[0.65rem] font-semibold uppercase tracking-wide text-slate-500">
+            Teacher
+          </span>
+          <select
+            className="field-control"
+            value={teacherId}
+            onChange={(e) => {
+              setTeacherId(e.target.value);
+              setPanel('requests');
+            }}
+          >
+            {teachers.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name} · {t.employeeId}
+              </option>
+            ))}
+          </select>
+        </label>
+      }
     >
-      <Card padding="none" className="overflow-hidden">
-        <DataTable
-          headers={[
-            'Teacher',
-            'Type',
-            'From',
-            'To',
-            'Reason',
-            'Status',
-            { label: 'Review', className: 'text-center' },
-            { label: 'Actions', className: 'text-right' },
-          ]}
-        >
-          {filtered.length === 0 ? (
-            <tr>
-              <Td className="py-8 text-center text-slate-500" colSpan={8}>
-                No leave requests match your search.
-              </Td>
-            </tr>
+      {/* Hero: teacher + primary metrics */}
+      <section className="mb-5 overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 text-white shadow-[0_24px_50px_-28px_rgba(15,23,42,0.55)] dark:border-slate-700">
+        <div className="flex flex-col gap-6 p-5 sm:p-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-slate-400">
+              Selected teacher
+            </p>
+            <h2 className="mt-1 truncate text-xl font-semibold tracking-tight sm:text-2xl">
+              {selectedTeacher?.name ?? '—'}
+            </h2>
+            <p className="mt-1 text-sm text-slate-400">
+              {selectedTeacher?.employeeId ?? '—'}
+              {selectedTeacher
+                ? ` · ${schoolById(selectedTeacher.schoolId)?.name ?? 'Unassigned school'}`
+                : ''}
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-3 sm:gap-4">
+            {[
+              {
+                label: 'Total leaves',
+                value: stats.total,
+                hint: 'Annual allotment',
+                ring: 'from-sky-400/30 to-transparent',
+              },
+              {
+                label: 'Used leaves',
+                value: stats.used,
+                hint: 'Approved days',
+                ring: 'from-orange-400/30 to-transparent',
+              },
+              {
+                label: 'Balance leaves',
+                value: stats.balance,
+                hint: stats.pendingDays ? `${stats.pendingDays} pending reserved` : 'Available days',
+                ring: 'from-emerald-400/35 to-transparent',
+              },
+            ].map((metric) => (
+              <div
+                key={metric.label}
+                className={`relative min-w-[6.5rem] overflow-hidden rounded-xl border border-white/10 bg-white/5 px-3 py-3 sm:min-w-[7.5rem] sm:px-4`}
+              >
+                <div
+                  className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${metric.ring}`}
+                  aria-hidden
+                />
+                <p className="relative text-[0.65rem] font-medium uppercase tracking-wide text-slate-400">
+                  {metric.label}
+                </p>
+                <p className="relative mt-1 text-2xl font-semibold tabular-nums tracking-tight sm:text-3xl">
+                  {metric.value}
+                </p>
+                <p className="relative mt-0.5 text-[0.7rem] text-slate-400">{metric.hint}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Segmented panels */}
+      <div className="mb-4 inline-flex flex-wrap rounded-xl border border-slate-200 bg-slate-100/80 p-1 dark:border-slate-700 dark:bg-slate-800/80">
+        {panelTabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setPanel(tab.id)}
+            className={[
+              'inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition',
+              panel === tab.id
+                ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
+                : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200',
+            ].join(' ')}
+          >
+            {tab.label}
+            {typeof tab.count === 'number' ? (
+              <span
+                className={[
+                  'rounded-md px-1.5 py-0.5 text-[0.65rem] font-bold tabular-nums',
+                  panel === tab.id
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                    : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+                ].join(' ')}
+              >
+                {tab.count}
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+
+      {panel === 'requests' ? (
+        <section className="space-y-3">
+          <div className="flex items-baseline justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+                View leave requests
+              </h3>
+              <p className="text-xs text-slate-500">
+                Approve or reject pending applications for this teacher.
+              </p>
+            </div>
+          </div>
+          {pendingRequests.length === 0 ? (
+            <Card className="py-12 text-center">
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                No pending requests
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                New submissions appear here for review.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="mt-4"
+                onClick={() => setPanel('history')}
+              >
+                Open leave history
+              </Button>
+            </Card>
           ) : (
-            filtered.map((leave) => (
-              <tr key={leave.id}>
-                <Td className="font-medium text-slate-900 dark:text-slate-100">
-                  {leave.teacherName}
-                </Td>
-                <Td>{leave.type}</Td>
-                <Td>{leave.fromDate}</Td>
-                <Td>{leave.toDate}</Td>
-                <Td className="max-w-[14rem]">
-                  <span className="line-clamp-2">{leave.reason}</span>
-                </Td>
-                <Td>
-                  <Badge
-                    tone={
-                      leave.status === 'Approved'
-                        ? 'success'
-                        : leave.status === 'Rejected'
-                          ? 'danger'
-                          : 'warning'
-                    }
-                  >
-                    {leave.status}
-                  </Badge>
-                </Td>
-                <Td className="text-center align-middle">
-                  {leave.status === 'Pending' ? (
-                    <LeaveReviewActions
-                      onApprove={() => setStatus(leave.id, 'Approved')}
-                      onReject={() => setStatus(leave.id, 'Rejected')}
-                    />
-                  ) : (
-                    <span className="inline-flex h-8 items-center justify-center text-slate-400">
-                      —
-                    </span>
-                  )}
-                </Td>
-                <Td className="text-right align-middle">
-                  <TableRowActions
-                    onEdit={() => openEdit(leave)}
-                    onDelete={() => setDeleteId(leave.id)}
-                  />
-                </Td>
-              </tr>
-            ))
+            <ul className="grid gap-3">
+              {pendingRequests.map((leave) => {
+                const days = leaveDayCount(leave.fromDate, leave.toDate);
+                return (
+                  <li key={leave.id}>
+                    <Card className="!p-0 overflow-hidden">
+                      <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge tone="warning">Pending</Badge>
+                            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                              {leave.type}
+                            </span>
+                            <span className="text-xs text-slate-400">·</span>
+                            <span className="text-xs font-medium tabular-nums text-slate-500">
+                              {days} day{days === 1 ? '' : 's'}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-base font-semibold text-slate-900 dark:text-slate-50">
+                            {leave.fromDate} → {leave.toDate}
+                          </p>
+                          <p className="mt-1 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                            {leave.reason}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="primary"
+                            onClick={() => setStatus(leave.id, 'Approved')}
+                          >
+                            Approve leave
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            onClick={() => setStatus(leave.id, 'Rejected')}
+                          >
+                            Reject leave
+                          </Button>
+                          <TableRowActions
+                            onEdit={() => openEdit(leave)}
+                            onDelete={() => setDeleteId(leave.id)}
+                          />
+                        </div>
+                      </div>
+                    </Card>
+                  </li>
+                );
+              })}
+            </ul>
           )}
-        </DataTable>
-      </Card>
+        </section>
+      ) : null}
+
+      {panel === 'balance' ? (
+        <section>
+          <div className="mb-3">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+              View leave balance
+            </h3>
+            <p className="text-xs text-slate-500">
+              Entitlement by leave type for {selectedTeacher?.name ?? 'this teacher'}.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {stats.byType.map((row) => (
+              <Card key={row.type} padding="lg">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                  {row.type}
+                </p>
+                <p className="mt-3 text-3xl font-semibold tabular-nums tracking-tight text-slate-900 dark:text-slate-50">
+                  {row.remaining}
+                </p>
+                <p className="mt-0.5 text-sm text-slate-500">days balance</p>
+                <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                  <div
+                    className="h-full rounded-full bg-brand-500"
+                    style={{
+                      width: `${row.allotted ? Math.min(100, (row.remaining / row.allotted) * 100) : 0}%`,
+                    }}
+                  />
+                </div>
+                <dl className="mt-4 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3 text-center text-xs dark:border-slate-800">
+                  <div>
+                    <dt className="text-slate-400">Total</dt>
+                    <dd className="mt-0.5 font-semibold text-slate-800 dark:text-slate-100">
+                      {row.allotted}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-400">Used</dt>
+                    <dd className="mt-0.5 font-semibold text-slate-800 dark:text-slate-100">
+                      {row.used}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-400">Pending</dt>
+                    <dd className="mt-0.5 font-semibold text-amber-700 dark:text-amber-400">
+                      {row.pending}
+                    </dd>
+                  </div>
+                </dl>
+              </Card>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {panel === 'history' ? (
+        <section>
+          <div className="mb-3">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+              Leave history
+            </h3>
+            <p className="text-xs text-slate-500">
+              Complete record of leave for {selectedTeacher?.name ?? 'this teacher'}.
+            </p>
+          </div>
+          <Card padding="none" className="overflow-hidden">
+            <DataTable
+              headers={[
+                'Type',
+                'From',
+                'To',
+                'Days',
+                'Reason',
+                'Status',
+                { label: 'Actions', className: 'text-right' },
+              ]}
+            >
+              {historyRows.length === 0 ? (
+                <tr>
+                  <Td className="py-10 text-center text-slate-500" colSpan={7}>
+                    No leave history for this teacher.
+                  </Td>
+                </tr>
+              ) : (
+                historyRows.map((leave) => (
+                  <tr key={leave.id}>
+                    <Td className="font-medium text-slate-900 dark:text-slate-100">
+                      {leave.type}
+                    </Td>
+                    <Td>{leave.fromDate}</Td>
+                    <Td>{leave.toDate}</Td>
+                    <Td className="tabular-nums">
+                      {leaveDayCount(leave.fromDate, leave.toDate)}
+                    </Td>
+                    <Td className="max-w-[14rem]">
+                      <span className="line-clamp-2">{leave.reason}</span>
+                    </Td>
+                    <Td>
+                      <Badge tone={leaveStatusTone(leave.status)}>{leave.status}</Badge>
+                    </Td>
+                    <Td className="text-right">
+                      <TableRowActions
+                        onEdit={() => openEdit(leave)}
+                        onDelete={() => setDeleteId(leave.id)}
+                      />
+                    </Td>
+                  </tr>
+                ))
+              )}
+            </DataTable>
+          </Card>
+        </section>
+      ) : null}
 
       <Modal
         open={Boolean(editing)}

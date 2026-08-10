@@ -1,5 +1,14 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
-import { IconCheck, IconEdit, IconEye, IconTrash, IconUser, IconUserPlus, IconX } from './icons';
+import {
+  IconCheck,
+  IconEdit,
+  IconEye,
+  IconKey,
+  IconTrash,
+  IconUser,
+  IconUserPlus,
+  IconX,
+} from './icons';
 import { cn } from '../../utils/cn';
 
 export const tableActionBtnClass =
@@ -27,6 +36,7 @@ export function TableRowActions({
   onAssign,
   assignLabel = 'Assign',
   assignVariant = 'add',
+  onResetPassword,
   className,
 }: {
   onView?: () => void;
@@ -39,6 +49,7 @@ export function TableRowActions({
   assignLabel?: string;
   /** `add` = user+ (not assigned); `change` = user (already assigned) */
   assignVariant?: 'add' | 'change';
+  onResetPassword?: () => void;
   className?: string;
 }) {
   return (
@@ -62,6 +73,16 @@ export function TableRowActions({
           <IconEdit className="h-4 w-4" />
         </IconActionButton>
       ) : null}
+      {onResetPassword ? (
+        <IconActionButton
+          aria-label="Reset password"
+          title="Reset password"
+          className="hover:bg-sky-50 hover:text-sky-700 dark:hover:bg-sky-500/15 dark:hover:text-sky-300"
+          onClick={onResetPassword}
+        >
+          <IconKey className="h-4 w-4" />
+        </IconActionButton>
+      ) : null}
       {onDisable ? (
         <IconActionButton
           aria-label={disableLabel ?? 'Disable'}
@@ -69,7 +90,7 @@ export function TableRowActions({
           className="hover:bg-amber-50 hover:text-amber-700 dark:hover:bg-amber-500/15 dark:hover:text-amber-300"
           onClick={onDisable}
         >
-          {disableLabel === 'Enable' ? (
+          {disableLabel === 'Enable' || disableLabel === 'Activate' ? (
             <IconCheck className="h-4 w-4" />
           ) : (
             <IconX className="h-4 w-4" />

@@ -25,6 +25,8 @@ export interface TeacherProfile {
   schoolId: string;
   assignedClasses: string[];
   active: boolean;
+  /** Profile photo data URL or remote URL */
+  photoUrl?: string;
 }
 
 export interface Student {

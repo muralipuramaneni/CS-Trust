@@ -1,9 +1,8 @@
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { Button, Input, FormField } from '../../../components/ui';
 import {
   Badge,
   Card,
-  EmptyHint,
   PageHeader,
   SectionTitle,
   StatCard,
@@ -11,18 +10,38 @@ import {
 import { DataTable, Td } from '../../../components/ui/DataTable';
 import {
   assets,
-  leaves,
+  leaves as seedLeaves,
   schoolById,
   studentsBySchool,
+  teachers,
   tickets,
 } from '../../../data/mockData';
+import type { LeaveRequest } from '../../../types/domain';
 import { useAuth } from '../../auth/hooks/useAuth';
+import {
+  LEAVE_TYPES,
+  computeLeaveStats,
+  leaveDayCount,
+  leaveStatusTone,
+} from '../../../utils/leave';
 
 const TEACHER_SCHOOL = 'sch_01';
 
 function useTeacherSchool() {
   const { user } = useAuth();
   return user?.schoolId ?? TEACHER_SCHOOL;
+}
+
+function resolveTeacherId(userEmail?: string, userName?: string) {
+  const byEmail = teachers.find(
+    (t) => userEmail && t.email.toLowerCase() === userEmail.toLowerCase(),
+  );
+  if (byEmail) return byEmail.id;
+  const byName = teachers.find(
+    (t) => userName && t.name.toLowerCase() === userName.toLowerCase(),
+  );
+  if (byName) return byName.id;
+  return teachers[0]?.id ?? 'tch_01';
 }
 
 export function TeacherDashboardPage() {
@@ -514,85 +533,286 @@ export function TeacherSyllabusPage() {
 }
 
 export function TeacherLeavePage() {
+  const { user } = useAuth();
   const schoolId = useTeacherSchool();
-  const myLeaves = leaves.filter((l) => l.teacherId === 'tch_01' || l.teacherName.includes('Priya'));
+  const teacherId = resolveTeacherId(user?.email, user?.name);
+  const teacher = teachers.find((t) => t.id === teacherId);
+
+  const [history, setHistory] = useState<LeaveRequest[]>(() =>
+    seedLeaves
+      .filter((l) => l.teacherId === teacherId)
+      .map((l) => ({ ...l }))
+      .sort((a, b) => b.fromDate.localeCompare(a.fromDate)),
+  );
+  const [panel, setPanel] = useState<'request' | 'balance' | 'history'>('request');
   const [sent, setSent] = useState(false);
+  const [form, setForm] = useState({
+    type: 'Casual',
+    fromDate: '',
+    toDate: '',
+    reason: '',
+  });
+
+  const stats = useMemo(() => computeLeaveStats(history), [history]);
+  const myRequests = history.filter((l) => l.status === 'Pending');
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!form.fromDate || !form.toDate || !form.reason.trim()) return;
+
+    const next: LeaveRequest = {
+      id: `lv_${Date.now()}`,
+      teacherId,
+      teacherName: teacher?.name ?? user?.name ?? 'Teacher',
+      type: form.type,
+      fromDate: form.fromDate,
+      toDate: form.toDate,
+      reason: form.reason.trim(),
+      status: 'Pending',
+    };
+    setHistory((prev) => [next, ...prev]);
+    setForm({ type: 'Casual', fromDate: '', toDate: '', reason: '' });
+    setSent(true);
+  };
+
+  const tabs: { id: typeof panel; label: string; count?: number }[] = [
+    { id: 'request', label: 'New request' },
+    { id: 'balance', label: 'Leave balance' },
+    { id: 'history', label: 'Leave history', count: history.length },
+  ];
 
   return (
     <div>
       <PageHeader
-        title="Leave Request"
-        description="Submit leave type, dates and reason. Administrator approves."
+        title="My leave"
+        description={`${teacher?.name ?? 'Teacher'} · ${schoolById(schoolId)?.name ?? 'School'} · track balance, requests and history`}
       />
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <SectionTitle>New request</SectionTitle>
-          <form
-            className="space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              setSent(true);
-            }}
-          >
-            <FormField id="lv-type" label="Leave type" required>
-              <select id="lv-type" className="field-control w-full" required>
-                <option>Casual</option>
-                <option>Sick</option>
-                <option>Earned</option>
-              </select>
-            </FormField>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField id="lv-from" label="From date" required>
-                <Input id="lv-from" type="date" required />
-              </FormField>
-              <FormField id="lv-to" label="To date" required>
-                <Input id="lv-to" type="date" required />
-              </FormField>
+
+      <section className="mb-5 overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 text-white dark:border-slate-700">
+        <div className="grid gap-px sm:grid-cols-3">
+          {[
+            { label: 'Total leaves', value: stats.total, hint: 'Annual allotment' },
+            { label: 'Used leaves', value: stats.used, hint: 'Approved days' },
+            {
+              label: 'Balance leaves',
+              value: stats.balance,
+              hint: stats.pendingDays
+                ? `${stats.pendingDays} day(s) pending`
+                : 'Available to request',
+            },
+          ].map((m, i) => (
+            <div
+              key={m.label}
+              className={`bg-white/5 px-5 py-5 ${i > 0 ? 'sm:border-l sm:border-white/10' : ''}`}
+            >
+              <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                {m.label}
+              </p>
+              <p className="mt-2 text-3xl font-semibold tabular-nums tracking-tight">{m.value}</p>
+              <p className="mt-1 text-xs text-slate-400">{m.hint}</p>
             </div>
-            <FormField id="lv-reason" label="Reason" required>
-              <textarea id="lv-reason" className="field-control min-h-24 w-full" required />
-            </FormField>
-            <Button type="submit" variant="primary">Submit to Admin</Button>
-            {sent ? (
-              <p className="text-sm text-emerald-700">Leave submitted for admin approval (demo).</p>
+          ))}
+        </div>
+      </section>
+
+      <div className="mb-4 inline-flex flex-wrap rounded-xl border border-slate-200 bg-slate-100/80 p-1 dark:border-slate-700 dark:bg-slate-800/80">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setPanel(tab.id)}
+            className={[
+              'inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition',
+              panel === tab.id
+                ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
+                : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200',
+            ].join(' ')}
+          >
+            {tab.label}
+            {typeof tab.count === 'number' ? (
+              <span className="rounded-md bg-slate-200 px-1.5 py-0.5 text-[0.65rem] font-bold tabular-nums text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                {tab.count}
+              </span>
             ) : null}
-          </form>
-        </Card>
-        <Card>
-          <SectionTitle>Your leave history</SectionTitle>
-          {myLeaves.length === 0 ? (
-            <EmptyHint>No leave requests yet.</EmptyHint>
-          ) : (
-            <ul className="space-y-3">
-              {myLeaves.map((leave) => (
-                <li
-                  key={leave.id}
-                  className="flex items-start justify-between gap-3 rounded-lg border border-slate-100 px-3 py-2 text-sm"
-                >
-                  <div>
-                    <p className="font-medium text-slate-900">
-                      {leave.type} · {leave.fromDate} → {leave.toDate}
-                    </p>
-                    <p className="text-slate-500">{leave.reason}</p>
-                  </div>
-                  <Badge
-                    tone={
-                      leave.status === 'Approved'
-                        ? 'success'
-                        : leave.status === 'Rejected'
-                          ? 'danger'
-                          : 'warning'
-                    }
-                  >
-                    {leave.status}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="mt-4 text-xs text-slate-400">School: {schoolById(schoolId)?.name}</p>
-        </Card>
+          </button>
+        ))}
       </div>
+
+      {panel === 'request' ? (
+        <div className="grid gap-4 lg:grid-cols-5">
+          <Card className="lg:col-span-3" padding="lg">
+            <SectionTitle>Submit leave request</SectionTitle>
+            <form className="mt-3 space-y-4" noValidate onSubmit={handleSubmit}>
+              <FormField id="lv-type" label="Leave type" required>
+                <select
+                  id="lv-type"
+                  className="field-control w-full"
+                  value={form.type}
+                  onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
+                  required
+                >
+                  {LEAVE_TYPES.map((type) => {
+                    const remaining =
+                      stats.byType.find((b) => b.type === type)?.remaining ?? 0;
+                    return (
+                      <option key={type} value={type}>
+                        {type} ({remaining} days left)
+                      </option>
+                    );
+                  })}
+                </select>
+              </FormField>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField id="lv-from" label="From date" required>
+                  <Input
+                    id="lv-from"
+                    type="date"
+                    required
+                    value={form.fromDate}
+                    onChange={(e) => setForm((f) => ({ ...f, fromDate: e.target.value }))}
+                  />
+                </FormField>
+                <FormField id="lv-to" label="To date" required>
+                  <Input
+                    id="lv-to"
+                    type="date"
+                    required
+                    value={form.toDate}
+                    onChange={(e) => setForm((f) => ({ ...f, toDate: e.target.value }))}
+                  />
+                </FormField>
+              </div>
+              <FormField id="lv-reason" label="Reason" required>
+                <textarea
+                  id="lv-reason"
+                  className="field-control min-h-24 w-full"
+                  required
+                  value={form.reason}
+                  onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
+                  placeholder="Brief reason for leave"
+                />
+              </FormField>
+              <Button type="submit" variant="primary">
+                Submit for approval
+              </Button>
+              {sent ? (
+                <p className="text-sm text-emerald-700 dark:text-emerald-400">
+                  Request submitted. Track it under leave requests / history.
+                </p>
+              ) : null}
+            </form>
+          </Card>
+
+          <Card className="lg:col-span-2" padding="lg">
+            <SectionTitle>Your leave requests</SectionTitle>
+            <p className="mt-1 text-xs text-slate-500">
+              Pending applications awaiting admin approval.
+            </p>
+            {myRequests.length === 0 ? (
+              <p className="mt-8 text-center text-sm text-slate-500">No open requests.</p>
+            ) : (
+              <ul className="mt-4 space-y-3">
+                {myRequests.map((leave) => (
+                  <li
+                    key={leave.id}
+                    className="rounded-xl border border-amber-200/70 bg-amber-50/50 px-3 py-3 dark:border-amber-500/25 dark:bg-amber-500/10"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+                        {leave.type}
+                      </span>
+                      <Badge tone="warning">Pending</Badge>
+                    </div>
+                    <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-50">
+                      {leave.fromDate} → {leave.toDate}
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">{leave.reason}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
+      ) : null}
+
+      {panel === 'balance' ? (
+        <section>
+          <h3 className="mb-1 text-sm font-semibold text-slate-900 dark:text-slate-50">
+            View leave balance
+          </h3>
+          <p className="mb-4 text-xs text-slate-500">
+            Balance = total − used (approved) − pending reserved days.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {stats.byType.map((row) => (
+              <Card key={row.type} padding="lg">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                  {row.type}
+                </p>
+                <p className="mt-3 text-3xl font-semibold tabular-nums text-slate-900 dark:text-slate-50">
+                  {row.remaining}
+                </p>
+                <p className="text-sm text-slate-500">days balance</p>
+                <dl className="mt-4 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3 text-center text-xs dark:border-slate-800">
+                  <div>
+                    <dt className="text-slate-400">Total</dt>
+                    <dd className="mt-0.5 font-semibold">{row.allotted}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-400">Used</dt>
+                    <dd className="mt-0.5 font-semibold">{row.used}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-400">Pending</dt>
+                    <dd className="mt-0.5 font-semibold text-amber-700 dark:text-amber-400">
+                      {row.pending}
+                    </dd>
+                  </div>
+                </dl>
+              </Card>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {panel === 'history' ? (
+        <section>
+          <h3 className="mb-1 text-sm font-semibold text-slate-900 dark:text-slate-50">
+            Leave history
+          </h3>
+          <p className="mb-4 text-xs text-slate-500">All requests for your account, newest first.</p>
+          <Card padding="none" className="overflow-hidden">
+            <DataTable headers={['Type', 'From', 'To', 'Days', 'Reason', 'Status']}>
+              {history.length === 0 ? (
+                <tr>
+                  <Td className="py-10 text-center text-slate-500" colSpan={6}>
+                    No leave history yet.
+                  </Td>
+                </tr>
+              ) : (
+                history.map((leave) => (
+                  <tr key={leave.id}>
+                    <Td className="font-medium text-slate-900 dark:text-slate-100">
+                      {leave.type}
+                    </Td>
+                    <Td>{leave.fromDate}</Td>
+                    <Td>{leave.toDate}</Td>
+                    <Td className="tabular-nums">
+                      {leaveDayCount(leave.fromDate, leave.toDate)}
+                    </Td>
+                    <Td className="max-w-[14rem]">
+                      <span className="line-clamp-2">{leave.reason}</span>
+                    </Td>
+                    <Td>
+                      <Badge tone={leaveStatusTone(leave.status)}>{leave.status}</Badge>
+                    </Td>
+                  </tr>
+                ))
+              )}
+            </DataTable>
+          </Card>
+        </section>
+      ) : null}
     </div>
   );
 }

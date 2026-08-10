@@ -331,6 +331,56 @@ export const leaves: LeaveRequest[] = [
     reason: 'Fever',
     status: 'Approved',
   },
+  {
+    id: 'lv_03',
+    teacherId: 'tch_01',
+    teacherName: 'Priya Sharma',
+    type: 'Casual',
+    fromDate: '2026-06-12',
+    toDate: '2026-06-13',
+    reason: 'Personal work',
+    status: 'Approved',
+  },
+  {
+    id: 'lv_04',
+    teacherId: 'tch_01',
+    teacherName: 'Priya Sharma',
+    type: 'Sick',
+    fromDate: '2026-05-05',
+    toDate: '2026-05-06',
+    reason: 'Viral fever',
+    status: 'Approved',
+  },
+  {
+    id: 'lv_05',
+    teacherId: 'tch_01',
+    teacherName: 'Priya Sharma',
+    type: 'Earned',
+    fromDate: '2026-04-14',
+    toDate: '2026-04-16',
+    reason: 'Travel home',
+    status: 'Approved',
+  },
+  {
+    id: 'lv_06',
+    teacherId: 'tch_01',
+    teacherName: 'Priya Sharma',
+    type: 'Casual',
+    fromDate: '2026-03-02',
+    toDate: '2026-03-02',
+    reason: 'Bank appointment',
+    status: 'Rejected',
+  },
+  {
+    id: 'lv_07',
+    teacherId: 'tch_02',
+    teacherName: 'Ravi Kumar',
+    type: 'Casual',
+    fromDate: '2026-06-01',
+    toDate: '2026-06-02',
+    reason: 'Personal',
+    status: 'Approved',
+  },
 ];
 
 export const events: EventItem[] = [
@@ -396,6 +446,10 @@ export function schoolById(id: string) {
 
 export function sponsorById(id: string) {
   return sponsors.find((s) => s.id === id);
+}
+
+export function teacherById(id: string) {
+  return teachers.find((t) => t.id === id || t.employeeId === id);
 }
 
 export function teachersBySchool(schoolId: string) {
