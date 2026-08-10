@@ -1,40 +1,63 @@
 # CS Trust
 
-Frontend for **Chaitanya Saradhi Trust**, wired to the FastAPI + PostgreSQL backend in `../CS-Trust-backend`.
+Monorepo for **Chaitanya Saradhi Trust**: React frontend + FastAPI backend.
+
+## Structure
+
+```
+├── src/                 # Frontend (React + Vite)
+├── backend/             # FastAPI + PostgreSQL API
+├── package.json
+└── README.md
+```
 
 ## Stack
 
-- React 19 + TypeScript
-- Vite
-- React Router
-- Tailwind CSS v4
+**Frontend:** React 19, TypeScript, Vite, React Router, Tailwind CSS v4  
+**Backend:** FastAPI, SQLAlchemy, PostgreSQL (Supabase or Docker)
 
 ## Prerequisites
 
-1. Backend API running at `http://127.0.0.1:8000` (see `../CS-Trust-backend/README.md`)
-2. PostgreSQL via Docker Compose from the backend folder
+1. Node.js 20+
+2. Python 3.11+
+3. PostgreSQL (Docker Compose in `backend/` or Supabase)
 
-## Getting started
+## Backend
+
+```bash
+cd backend
+python -m venv .venv
+.\.venv\Scripts\activate          # Windows
+# source .venv/bin/activate       # macOS/Linux
+pip install -r requirements.txt
+copy .env.example .env            # then set DATABASE_URL / SECRET_KEY
+uvicorn app.main:app --reload --port 8000
+```
+
+API docs: http://127.0.0.1:8000/docs
+
+## Frontend
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. Vite proxies `/api` → `http://127.0.0.1:8000`.
+Open http://localhost:5173. Vite proxies `/api` → `http://127.0.0.1:8000`.
 
-Optional: set `VITE_API_BASE_URL` in `.env` (default `/api/v1`).
+Optional: set `VITE_API_BASE_URL` in `.env` (default `/api/v1`). See `.env.example`.
 
 ## Auth
 
 | Route | Feature |
 |-------|---------|
 | `/login` | Email + password (JWT) |
-| `/forgot-password` | Phone OTP → reset password |
+| `/change-password` | Required after admin-issued temp password |
+| `/forgot-password` | Contact admin to reset |
 
 ### Demo credentials
 
-Password for all seed accounts: **`demo1234`**
+Password for seed accounts: **`demo1234`**
 
 | Role | Email |
 |------|-------|
@@ -42,9 +65,7 @@ Password for all seed accounts: **`demo1234`**
 | Teacher | teacher@chaitanyasaradhi.org |
 | Sponsor | sponsor@chaitanyasaradhi.org |
 
-**Demo OTP (forgot password):** `123456`
-
-## Project structure
+## Project structure (frontend)
 
 ```
 src/

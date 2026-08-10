@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: cstrust
+      POSTGRES_PASSWORD: cstrust
+      POSTGRES_DB: cstrust
+    ports:
+      # Host 5432 may already be used by a local Postgres — use 5433 for this project.
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
