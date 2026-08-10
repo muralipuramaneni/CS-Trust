@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Button, Input, FormField } from '../../../components/ui';
 import {
   Badge,
@@ -9,14 +9,33 @@ import {
 } from '../../../components/ui/Surface';
 import { DataTable, Td } from '../../../components/ui/DataTable';
 import {
-  assets,
-  leaves as seedLeaves,
-  schoolById,
-  studentsBySchool,
-  teachers,
-  tickets,
-} from '../../../data/mockData';
-import type { LeaveRequest } from '../../../types/domain';
+  createLeave,
+  createStudent,
+  createStudentAttendanceSession,
+  createSyllabus,
+  createTeacherAttendance,
+  createTeachingLog,
+  createTicket,
+  createEvent,
+  getMyTeacherProfile,
+  getSchool,
+  listAssets,
+  listLeaves,
+  listStudents,
+  listStudentAttendanceSessions,
+  listTickets,
+  listTeacherAttendance,
+  updateTeacherAttendance,
+  type TeacherAttendanceRow,
+} from '../../../api';
+import type {
+  Asset,
+  LeaveRequest,
+  School,
+  Student,
+  SupportTicket,
+  TeacherProfile,
+} from '../../../types/domain';
 import { useAuth } from '../../auth/hooks/useAuth';
 import {
   LEAVE_TYPES,
@@ -24,29 +43,91 @@ import {
   leaveDayCount,
   leaveStatusTone,
 } from '../../../utils/leave';
+import {
+  captureBrowserLocation,
+  formatWorkingHours,
+  isMeaningfulGpsLabel,
+} from '../../../utils/geo';
+import { localDateKey } from '../../../utils/date';
 
-const TEACHER_SCHOOL = 'sch_01';
-
-function useTeacherSchool() {
-  const { user } = useAuth();
-  return user?.schoolId ?? TEACHER_SCHOOL;
+function apiErrorMessage(e: unknown, fallback: string) {
+  return e instanceof Error ? e.message : fallback;
 }
 
-function resolveTeacherId(userEmail?: string, userName?: string) {
-  const byEmail = teachers.find(
-    (t) => userEmail && t.email.toLowerCase() === userEmail.toLowerCase(),
-  );
-  if (byEmail) return byEmail.id;
-  const byName = teachers.find(
-    (t) => userName && t.name.toLowerCase() === userName.toLowerCase(),
-  );
-  if (byName) return byName.id;
-  return teachers[0]?.id ?? 'tch_01';
+function useTeacherContext() {
+  const { user } = useAuth();
+  const [teacher, setTeacher] = useState<TeacherProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!user || user.role !== 'teacher') {
+        setTeacher(null);
+        setProfileLoading(false);
+        return;
+      }
+      setProfileLoading(true);
+      try {
+        const profile = await getMyTeacherProfile();
+        if (!cancelled) setTeacher(profile);
+      } catch {
+        if (!cancelled) setTeacher(null);
+      } finally {
+        if (!cancelled) setProfileLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  const schoolId = user?.schoolId || teacher?.schoolId || '';
+  return { teacher, schoolId, profileLoading };
 }
 
 export function TeacherDashboardPage() {
-  const schoolId = useTeacherSchool();
-  const school = schoolById(schoolId);
+  const { schoolId } = useTeacherContext();
+  const [school, setSchool] = useState<School | null>(null);
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const tasks: Promise<unknown>[] = [listTickets({ schoolId }), listLeaves()];
+        if (schoolId) tasks.unshift(getSchool(schoolId));
+        const results = await Promise.all(tasks);
+        if (cancelled) return;
+        let offset = 0;
+        if (schoolId) {
+          setSchool(results[0] as School);
+          offset = 1;
+        }
+        setTickets(results[offset] as SupportTicket[]);
+        setLeaves(results[offset + 1] as LeaveRequest[]);
+      } catch (e) {
+        if (!cancelled) setLoadError(apiErrorMessage(e, 'Failed to load dashboard'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [schoolId]);
+
+  const pendingLeaves = leaves.filter((l) => l.status === 'Pending').length;
+  const openTickets = tickets.filter(
+    (t) => t.status === 'Open' || t.status === 'Assigned' || t.status === 'In Progress',
+  ).length;
+
+  if (loading) {
+    return <div className="py-16 text-center text-sm text-slate-500">Loading dashboard…</div>;
+  }
 
   return (
     <div>
@@ -54,14 +135,23 @@ export function TeacherDashboardPage() {
         title="Teacher Dashboard"
         description={`${school?.name ?? 'Assigned school'} · Today’s classes, attendance, tasks and leave.`}
       />
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <StatCard label="Today's Classes" value="3" hint="6-A, 7-A, 8-B" />
-        <StatCard label="Today's Attendance" value="92%" hint="28 / 30 present" />
-        <StatCard label="Pending Tasks" value="2" hint="Log + syllabus update" />
-        <StatCard label="Today's Syllabus" value="MS Paint" hint="Class 7 · 40 min" />
-        <StatCard label="Leave Status" value="1 pending" hint="8–9 Aug casual" />
-        <StatCard label="Open Tickets" value="1" hint="Hardware · lab row 2" />
+        <StatCard label="Today's Classes" value="—" hint="Check teaching log" />
+        <StatCard label="Today's Attendance" value="—" hint="Mark class attendance" />
+        <StatCard label="Pending Tasks" value="—" hint="Log + syllabus update" />
+        <StatCard
+          label="Syllabus"
+          value={school ? `${school.syllabusCompletion}%` : '—'}
+          hint="School average"
+        />
+        <StatCard
+          label="Leave Status"
+          value={`${pendingLeaves} pending`}
+          hint="Awaiting admin"
+        />
+        <StatCard label="Open Tickets" value={openTickets} hint="School support queue" />
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
@@ -69,7 +159,7 @@ export function TeacherDashboardPage() {
           <SectionTitle>Quick links</SectionTitle>
           <ul className="space-y-2 text-sm text-slate-600">
             <li>Clock in with GPS before first period</li>
-            <li>Mark student attendance for Class 7-A</li>
+            <li>Mark student attendance for your class</li>
             <li>Submit daily teaching log after last class</li>
             <li>Update syllabus completion %</li>
           </ul>
@@ -103,48 +193,141 @@ export function TeacherDashboardPage() {
 }
 
 export function TeacherClockPage() {
+  const { user } = useAuth();
+  const { schoolId, teacher, profileLoading } = useTeacherContext();
   const [status, setStatus] = useState<'out' | 'in'>('out');
   const [clockInAt, setClockInAt] = useState<string | null>(null);
   const [location, setLocation] = useState<string | null>(null);
+  const [gpsOk, setGpsOk] = useState(false);
   const [device, setDevice] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [messageTone, setMessageTone] = useState<'ok' | 'warn' | 'error'>('ok');
   const [busy, setBusy] = useState(false);
+  const [todayRow, setTodayRow] = useState<TeacherAttendanceRow | null>(null);
+  const [schoolName, setSchoolName] = useState('');
 
-  async function captureLocation(): Promise<string> {
-    if (!navigator.geolocation) {
-      return 'GPS unavailable — browser blocked location';
-    }
-    return new Promise((resolve) => {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const { latitude, longitude } = pos.coords;
-          resolve(`${latitude.toFixed(4)}° N, ${longitude.toFixed(4)}° E`);
-        },
-        () => resolve('Location permission denied (demo mode)'),
-        { enableHighAccuracy: true, timeout: 8000 },
-      );
-    });
-  }
+  const today = localDateKey();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!schoolId) return;
+      try {
+        const school = await getSchool(schoolId);
+        if (!cancelled) setSchoolName(school.name);
+      } catch {
+        if (!cancelled) setSchoolName('');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [schoolId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!teacher) return;
+      try {
+        const rows = await listTeacherAttendance({
+          date: today,
+          teacherId: teacher.id,
+          schoolId: schoolId || undefined,
+        });
+        if (cancelled) return;
+        const open = rows.find((r) => !r.clockOut || r.clockOut === '—' || r.hours === 'In progress');
+        const row = open ?? rows[0] ?? null;
+        setTodayRow(row);
+        if (row && (!row.clockOut || row.clockOut === '—' || row.hours === 'In progress')) {
+          setStatus('in');
+          setClockInAt(row.clockIn);
+          setLocation(row.inLocation);
+          setGpsOk(isMeaningfulGpsLabel(row.inLocation));
+        }
+      } catch {
+        // ignore preload errors
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [teacher, schoolId, today]);
 
   async function handleClock(action: 'in' | 'out') {
+    if (!teacher || !schoolId) {
+      setMessageTone('error');
+      setMessage('Your account is not linked to a school yet. Ask an admin to assign you.');
+      return;
+    }
+
     setBusy(true);
     setMessage(null);
-    const loc = await captureLocation();
-    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const ua = navigator.userAgent.slice(0, 48) + '…';
+    try {
+      const loc = await captureBrowserLocation();
+      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const ua = navigator.userAgent.slice(0, 80);
 
-    if (action === 'in') {
-      setStatus('in');
-      setClockInAt(now);
-      setLocation(loc);
-      setDevice(ua);
-      setMessage(`Clocked in at ${now}. Admins can verify this location.`);
-    } else {
-      setStatus('out');
-      setMessage(`Clocked out at ${now}. Working hours calculated from ${clockInAt ?? '—'}.`);
-      setClockInAt(null);
+      if (action === 'in') {
+        const created = await createTeacherAttendance({
+          teacherId: teacher.id,
+          teacherName: teacher.name,
+          schoolId,
+          schoolName: schoolName || schoolId,
+          date: today,
+          clockIn: now,
+          inLocation: loc.label,
+          clockOut: '—',
+          outLocation: '—',
+          hours: 'In progress',
+          device: ua,
+          latitude: loc.latitude ?? null,
+          longitude: loc.longitude ?? null,
+        });
+        setTodayRow(created);
+        setStatus('in');
+        setClockInAt(now);
+        setLocation(loc.label);
+        setGpsOk(loc.status === 'ok');
+        setDevice(ua);
+        if (loc.status === 'ok') {
+          setMessageTone('ok');
+          setMessage(`Clocked in at ${now}. GPS captured for admin verification.`);
+        } else {
+          setMessageTone('warn');
+          setMessage(
+            `Clocked in at ${now}, but GPS was not captured (${loc.label}). Enable location in your browser site settings, then clock out later with GPS if possible.`,
+          );
+        }
+      } else if (todayRow) {
+        const hours = formatWorkingHours(todayRow.clockIn || clockInAt || '', now);
+        const updated = await updateTeacherAttendance(todayRow.id, {
+          clockOut: now,
+          outLocation: loc.label,
+          hours,
+          latitude: loc.latitude ?? todayRow.latitude ?? null,
+          longitude: loc.longitude ?? todayRow.longitude ?? null,
+        });
+        setTodayRow(updated);
+        setStatus('out');
+        setLocation(loc.label);
+        setGpsOk(loc.status === 'ok' || gpsOk);
+        setMessageTone(loc.status === 'ok' ? 'ok' : 'warn');
+        setMessage(
+          loc.status === 'ok'
+            ? `Clocked out at ${now}. Working hours: ${updated.hours || hours}.`
+            : `Clocked out at ${now} (${updated.hours || hours}). GPS on clock-out was not captured.`,
+        );
+        setClockInAt(null);
+      } else {
+        setMessageTone('error');
+        setMessage('No open clock-in found for today.');
+      }
+    } catch (e) {
+      setMessageTone('error');
+      setMessage(apiErrorMessage(e, 'Clock action failed'));
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   return (
@@ -163,6 +346,10 @@ export function TeacherClockPage() {
             </Badge>
           </p>
           <dl className="space-y-2 text-sm">
+            <div className="flex justify-between gap-4">
+              <dt className="text-slate-500">School</dt>
+              <dd className="font-medium text-slate-900">{schoolName || schoolId || '—'}</dd>
+            </div>
             <div className="flex justify-between gap-4">
               <dt className="text-slate-500">Last clock-in</dt>
               <dd className="font-medium text-slate-900">{clockInAt ?? '—'}</dd>
@@ -184,7 +371,7 @@ export function TeacherClockPage() {
             <Button
               type="button"
               variant="primary"
-              disabled={busy || status === 'in'}
+              disabled={busy || profileLoading || status === 'in' || !teacher || !schoolId}
               onClick={() => void handleClock('in')}
             >
               Clock In
@@ -192,14 +379,28 @@ export function TeacherClockPage() {
             <Button
               type="button"
               variant="secondary"
-              disabled={busy || status === 'out'}
+              disabled={busy || status === 'out' || !todayRow}
               onClick={() => void handleClock('out')}
             >
               Clock Out
             </Button>
           </div>
+          {!profileLoading && (!teacher || !schoolId) ? (
+            <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              No teacher profile / school assignment found for {user?.email ?? 'this account'}.
+              Ask an admin to create your teacher record and assign a school.
+            </p>
+          ) : null}
           {message ? (
-            <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+            <p
+              className={`mt-4 rounded-lg px-3 py-2 text-sm ${
+                messageTone === 'error'
+                  ? 'bg-rose-50 text-rose-800'
+                  : messageTone === 'warn'
+                    ? 'bg-amber-50 text-amber-900'
+                    : 'bg-emerald-50 text-emerald-800'
+              }`}
+            >
               {message}
             </p>
           ) : null}
@@ -207,10 +408,19 @@ export function TeacherClockPage() {
         <Card>
           <SectionTitle>Why location is required</SectionTitle>
           <p className="text-sm leading-relaxed text-slate-600">
-            Administrators verify that teachers clock in from the assigned school campus. Grant
-            browser location when prompted. Data is stored for attendance history only (frontend
-            demo for Phase 1).
+            Administrators verify that teachers clock in from the assigned school campus. When the
+            browser asks for location, choose <strong>Allow</strong>.
           </p>
+          <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-600">
+            <li>Use Chrome/Edge on localhost or HTTPS</li>
+            <li>Click the lock/tune icon in the address bar → Site settings → Location → Allow</li>
+            <li>You can still clock in if GPS is blocked; admins will see that GPS was not granted</li>
+          </ul>
+          {!gpsOk && location ? (
+            <p className="mt-4 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600">
+              Current GPS status: {location}
+            </p>
+          ) : null}
         </Card>
       </div>
     </div>
@@ -218,8 +428,27 @@ export function TeacherClockPage() {
 }
 
 export function TeacherStudentsPage() {
-  const schoolId = useTeacherSchool();
-  const list = studentsBySchool(schoolId);
+  const { schoolId } = useTeacherContext();
+  const [list, setList] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listStudents(schoolId ? { schoolId } : undefined);
+        if (!cancelled) setList(data);
+      } catch (e) {
+        if (!cancelled) setLoadError(apiErrorMessage(e, 'Failed to load students'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [schoolId]);
 
   return (
     <div>
@@ -228,47 +457,82 @@ export function TeacherStudentsPage() {
         description="Add, edit, transfer or mark students inactive. Students do not have login accounts."
         actions={<Button type="button" variant="primary">Add Student</Button>}
       />
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
       <Card>
-        <DataTable
-          headers={[
-            'Student ID',
-            'Name',
-            'Gender',
-            'Class',
-            'Section',
-            'Parent',
-            'Phone',
-            'Status',
-          ]}
-        >
-          {list.map((student) => (
-            <tr key={student.id}>
-              <Td>{student.studentId}</Td>
-              <Td className="font-medium text-slate-900">{student.name}</Td>
-              <Td>{student.gender}</Td>
-              <Td>{student.classGrade}</Td>
-              <Td>{student.section}</Td>
-              <Td>{student.parentName}</Td>
-              <Td>{student.parentPhone}</Td>
-              <Td>
-                <Badge tone={student.status === 'active' ? 'success' : 'neutral'}>
-                  {student.status}
-                </Badge>
-              </Td>
-            </tr>
-          ))}
-        </DataTable>
+        {loading ? (
+          <p className="py-8 text-center text-sm text-slate-500">Loading students…</p>
+        ) : (
+          <DataTable
+            headers={[
+              'Student ID',
+              'Name',
+              'Gender',
+              'Class',
+              'Section',
+              'Parent',
+              'Phone',
+              'Status',
+            ]}
+          >
+            {list.map((student) => (
+              <tr key={student.id}>
+                <Td>{student.studentId}</Td>
+                <Td className="font-medium text-slate-900">{student.name}</Td>
+                <Td>{student.gender}</Td>
+                <Td>{student.classGrade}</Td>
+                <Td>{student.section}</Td>
+                <Td>{student.parentName}</Td>
+                <Td>{student.parentPhone}</Td>
+                <Td>
+                  <Badge tone={student.status === 'active' ? 'success' : 'neutral'}>
+                    {student.status}
+                  </Badge>
+                </Td>
+              </tr>
+            ))}
+          </DataTable>
+        )}
       </Card>
     </div>
   );
 }
 
 export function TeacherAdmissionPage() {
+  const { schoolId } = useTeacherContext();
   const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setDone(true);
+    if (!schoolId) {
+      setError('No school assigned to your account.');
+      return;
+    }
+    const formEl = event.currentTarget;
+    const form = new FormData(formEl);
+    setBusy(true);
+    setError(null);
+    setDone(false);
+    try {
+      await createStudent({
+        name: String(form.get('name') ?? '').trim(),
+        gender: String(form.get('gender') ?? 'Other') as Student['gender'],
+        classGrade: String(form.get('class') ?? '').trim(),
+        section: String(form.get('section') ?? '').trim(),
+        parentName: String(form.get('parent') ?? '').trim(),
+        parentPhone: String(form.get('phone') ?? '').trim(),
+        schoolId,
+        status: 'active',
+        studentId: `STU-${Date.now()}`,
+      });
+      formEl.reset();
+      setDone(true);
+    } catch (e) {
+      setError(apiErrorMessage(e, 'Failed to register student'));
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -278,7 +542,7 @@ export function TeacherAdmissionPage() {
         description="Register a newly joined student for your assigned school."
       />
       <Card className="max-w-xl">
-        <form className="space-y-4" onSubmit={handleSubmit}>
+        <form className="space-y-4" onSubmit={(e) => void handleSubmit(e)}>
           <FormField id="adm-name" label="Student name" required>
             <Input id="adm-name" name="name" required placeholder="Full name" />
           </FormField>
@@ -306,11 +570,12 @@ export function TeacherAdmissionPage() {
           <FormField id="adm-phone" label="Parent phone" required>
             <Input id="adm-phone" name="phone" required inputMode="tel" placeholder="10-digit" />
           </FormField>
-          <Button type="submit" variant="primary">Register Student</Button>
+          <Button type="submit" variant="primary" disabled={busy}>
+            Register Student
+          </Button>
+          {error ? <p className="text-sm text-rose-600">{error}</p> : null}
           {done ? (
-            <p className="text-sm text-emerald-700">
-              Student registered (demo — not persisted to a backend).
-            </p>
+            <p className="text-sm text-emerald-700">Student registered successfully.</p>
           ) : null}
         </form>
       </Card>
@@ -319,18 +584,125 @@ export function TeacherAdmissionPage() {
 }
 
 export function TeacherAttendancePage() {
-  const schoolId = useTeacherSchool();
-  const list = studentsBySchool(schoolId);
+  const { schoolId, teacher } = useTeacherContext();
+  const [list, setList] = useState<Student[]>([]);
   const [step, setStep] = useState(1);
+  const [classGrade, setClassGrade] = useState('7');
+  const [section, setSection] = useState('A');
   const [marks, setMarks] = useState<Record<string, 'P' | 'A'>>({});
   const [submitted, setSubmitted] = useState(false);
+  const [existingSessionId, setExistingSessionId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const today = localDateKey();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listStudents(schoolId ? { schoolId } : undefined);
+        if (!cancelled) setList(data.filter((s) => s.status === 'active'));
+      } catch (e) {
+        if (!cancelled) setError(apiErrorMessage(e, 'Failed to load students'));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [schoolId]);
+
+  const classStudents = list.filter(
+    (s) =>
+      s.classGrade === classGrade &&
+      s.section.trim().toUpperCase() === section.trim().toUpperCase(),
+  );
+
+  async function loadExistingSession(nextClass = classGrade, nextSection = section) {
+    if (!schoolId) return false;
+    setChecking(true);
+    setError(null);
+    try {
+      const sessions = await listStudentAttendanceSessions({
+        schoolId,
+        classGrade: nextClass,
+        section: nextSection,
+        date: today,
+      });
+      const existing = sessions[0] ?? null;
+      if (existing) {
+        const nextMarks: Record<string, 'P' | 'A'> = {};
+        for (const mark of existing.marks) {
+          nextMarks[mark.studentId] = mark.status;
+        }
+        setMarks(nextMarks);
+        setExistingSessionId(existing.id);
+        setSubmitted(true);
+        setStep(3);
+        return true;
+      }
+      setMarks({});
+      setExistingSessionId(null);
+      setSubmitted(false);
+      return false;
+    } catch (e) {
+      setError(apiErrorMessage(e, 'Failed to check existing attendance'));
+      return false;
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function continueToMarking() {
+    const already = await loadExistingSession(classGrade, section);
+    if (!already) setStep(2);
+  }
+
+  async function submitAttendance() {
+    if (!schoolId || !teacher) {
+      setError('Missing school or teacher profile.');
+      return;
+    }
+    if (Object.keys(marks).length === 0) {
+      setError('Mark at least one student present or absent.');
+      return;
+    }
+    const unmarked = classStudents.filter((s) => !marks[s.id]);
+    if (unmarked.length > 0) {
+      setError(`Mark attendance for all students (${unmarked.length} remaining).`);
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await createStudentAttendanceSession({
+        schoolId,
+        classGrade,
+        section,
+        date: today,
+        teacherId: teacher.id,
+        teacherName: teacher.name,
+        marks: Object.entries(marks).map(([studentId, status]) => ({ studentId, status })),
+      });
+      setExistingSessionId(created.id);
+      setSubmitted(true);
+      setStep(3);
+    } catch (e) {
+      setError(apiErrorMessage(e, 'Failed to submit attendance'));
+      await loadExistingSession(classGrade, section);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div>
       <PageHeader
         title="Student Attendance"
-        description="Select class & section, mark present / absent, then submit."
+        description={`Select class & section, mark present / absent, then submit once for ${today}.`}
       />
+      {error ? <p className="mb-4 text-sm text-rose-600">{error}</p> : null}
 
       <div className="mb-4 flex gap-2 text-xs font-semibold">
         {[1, 2, 3].map((n) => (
@@ -350,63 +722,101 @@ export function TeacherAttendancePage() {
       {step === 1 ? (
         <Card className="max-w-md space-y-4">
           <SectionTitle>Select class & section</SectionTitle>
-          <select className="field-control w-full" defaultValue="7">
+          <select
+            className="field-control w-full"
+            value={classGrade}
+            onChange={(e) => {
+              setClassGrade(e.target.value);
+              setSubmitted(false);
+              setExistingSessionId(null);
+              setMarks({});
+            }}
+          >
+            <option value="6">Class 6</option>
             <option value="7">Class 7</option>
             <option value="8">Class 8</option>
+            <option value="9">Class 9</option>
+            <option value="10">Class 10</option>
           </select>
-          <select className="field-control w-full" defaultValue="A">
+          <select
+            className="field-control w-full"
+            value={section}
+            onChange={(e) => {
+              setSection(e.target.value);
+              setSubmitted(false);
+              setExistingSessionId(null);
+              setMarks({});
+            }}
+          >
             <option value="A">Section A</option>
             <option value="B">Section B</option>
+            <option value="C">Section C</option>
           </select>
-          <Button type="button" variant="primary" onClick={() => setStep(2)}>
-            Continue
+          <Button
+            type="button"
+            variant="primary"
+            disabled={checking || !schoolId}
+            onClick={() => void continueToMarking()}
+          >
+            {checking ? 'Checking…' : 'Continue'}
           </Button>
         </Card>
       ) : null}
 
       {step === 2 ? (
         <Card>
-          <SectionTitle>Mark present / absent</SectionTitle>
-          <DataTable headers={['Student', 'Class', 'Section', 'Attendance']}>
-            {list.map((student) => (
-              <tr key={student.id}>
-                <Td className="font-medium text-slate-900">{student.name}</Td>
-                <Td>{student.classGrade}</Td>
-                <Td>{student.section}</Td>
-                <Td>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      className={
-                        marks[student.id] === 'P'
-                          ? 'rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white'
-                          : 'rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600'
-                      }
-                      onClick={() => setMarks((m) => ({ ...m, [student.id]: 'P' }))}
-                    >
-                      Present
-                    </button>
-                    <button
-                      type="button"
-                      className={
-                        marks[student.id] === 'A'
-                          ? 'rounded-lg bg-red-600 px-3 py-1 text-xs font-semibold text-white'
-                          : 'rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600'
-                      }
-                      onClick={() => setMarks((m) => ({ ...m, [student.id]: 'A' }))}
-                    >
-                      Absent
-                    </button>
-                  </div>
-                </Td>
-              </tr>
-            ))}
-          </DataTable>
+          <SectionTitle>
+            Mark present / absent · Class {classGrade}-{section}
+          </SectionTitle>
+          {classStudents.length === 0 ? (
+            <p className="py-6 text-sm text-slate-500">No active students in this class/section.</p>
+          ) : (
+            <DataTable headers={['Student', 'Class', 'Section', 'Attendance']}>
+              {classStudents.map((student) => (
+                <tr key={student.id}>
+                  <Td className="font-medium text-slate-900">{student.name}</Td>
+                  <Td>{student.classGrade}</Td>
+                  <Td>{student.section}</Td>
+                  <Td>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className={
+                          marks[student.id] === 'P'
+                            ? 'rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white'
+                            : 'rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600'
+                        }
+                        onClick={() => setMarks((m) => ({ ...m, [student.id]: 'P' }))}
+                      >
+                        Present
+                      </button>
+                      <button
+                        type="button"
+                        className={
+                          marks[student.id] === 'A'
+                            ? 'rounded-lg bg-red-600 px-3 py-1 text-xs font-semibold text-white'
+                            : 'rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600'
+                        }
+                        onClick={() => setMarks((m) => ({ ...m, [student.id]: 'A' }))}
+                      >
+                        Absent
+                      </button>
+                    </div>
+                  </Td>
+                </tr>
+              ))}
+            </DataTable>
+          )}
           <div className="mt-4 flex gap-2">
             <Button type="button" variant="ghost" onClick={() => setStep(1)}>
               Back
             </Button>
-            <Button type="button" variant="primary" onClick={() => setStep(3)}>
+            <Button
+              type="button"
+              variant="primary"
+              disabled={busy || classStudents.length === 0}
+              onClick={() => setStep(3)}
+            >
               Review & submit
             </Button>
           </div>
@@ -414,31 +824,53 @@ export function TeacherAttendancePage() {
       ) : null}
 
       {step === 3 ? (
-        <Card className="max-w-md">
-          <SectionTitle>Submit attendance</SectionTitle>
-          <p className="mb-4 text-sm text-slate-600">
-            {Object.keys(marks).length} students marked for Class 7-A.
+        <Card className="max-w-lg space-y-4">
+          <SectionTitle>
+            {submitted ? 'Attendance already submitted' : 'Review & submit'}
+          </SectionTitle>
+          <p className="text-sm text-slate-600">
+            Class {classGrade}-{section} · {today}
+            {existingSessionId ? ` · Session ${existingSessionId}` : ''}
           </p>
-          {!submitted ? (
-            <div className="flex gap-2">
+          <dl className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <dt className="text-slate-500">Present</dt>
+              <dd className="font-semibold text-emerald-700">
+                {Object.values(marks).filter((m) => m === 'P').length}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-slate-500">Absent</dt>
+              <dd className="font-semibold text-rose-700">
+                {Object.values(marks).filter((m) => m === 'A').length}
+              </dd>
+            </div>
+          </dl>
+          {submitted ? (
+            <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              Attendance for this class/section today is locked. Contact an admin if a correction is
+              needed.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
               <Button type="button" variant="ghost" onClick={() => setStep(2)}>
                 Back
               </Button>
               <Button
                 type="button"
                 variant="primary"
-                onClick={() => {
-                  setSubmitted(true);
-                }}
+                disabled={busy}
+                onClick={() => void submitAttendance()}
               >
-                Submit Attendance
+                {busy ? 'Submitting…' : 'Submit attendance'}
               </Button>
             </div>
-          ) : (
-            <p className="text-sm font-medium text-emerald-700">
-              Attendance submitted successfully (demo).
-            </p>
           )}
+          {submitted ? (
+            <Button type="button" variant="secondary" onClick={() => setStep(1)}>
+              Choose another class
+            </Button>
+          ) : null}
         </Card>
       ) : null}
     </div>
@@ -446,7 +878,41 @@ export function TeacherAttendancePage() {
 }
 
 export function TeacherTeachingLogPage() {
+  const { schoolId, teacher } = useTeacherContext();
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!schoolId || !teacher) {
+      setError('Missing school or teacher profile.');
+      return;
+    }
+    const formEl = e.currentTarget;
+    const form = new FormData(formEl);
+    setBusy(true);
+    setError(null);
+    try {
+      await createTeachingLog({
+        teacherId: teacher.id,
+        schoolId,
+        classGrade: String(form.get('class') ?? '').trim(),
+        section: String(form.get('section') ?? '').trim(),
+        subject: String(form.get('subject') ?? '').trim(),
+        topic: String(form.get('topic') ?? '').trim(),
+        durationMinutes: Number(form.get('duration') ?? 0) || 0,
+        remarks: String(form.get('remarks') ?? '').trim(),
+        date: localDateKey(),
+      });
+      formEl.reset();
+      setSaved(true);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to save teaching log'));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div>
@@ -455,41 +921,37 @@ export function TeacherTeachingLogPage() {
         description="Record class, subject, topic, duration and remarks."
       />
       <Card className="max-w-xl">
-        <form
-          className="space-y-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setSaved(true);
-          }}
-        >
+        <form className="space-y-4" onSubmit={(e) => void handleSubmit(e)}>
           <div className="grid gap-4 sm:grid-cols-2">
             <FormField id="log-class" label="Class" required>
-              <Input id="log-class" required placeholder="7" />
+              <Input id="log-class" name="class" required placeholder="7" />
             </FormField>
             <FormField id="log-section" label="Section" required>
-              <Input id="log-section" required placeholder="A" />
+              <Input id="log-section" name="section" required placeholder="A" />
             </FormField>
           </div>
           <FormField id="log-subject" label="Subject" required>
-            <Input id="log-subject" required placeholder="Computer basics" />
+            <Input id="log-subject" name="subject" required placeholder="Computer basics" />
           </FormField>
           <FormField id="log-topic" label="Today's topic" required>
-            <Input id="log-topic" required placeholder="MS Paint tools" />
+            <Input id="log-topic" name="topic" required placeholder="MS Paint tools" />
           </FormField>
           <FormField id="log-duration" label="Duration (minutes)" required>
-            <Input id="log-duration" type="number" required placeholder="40" />
+            <Input id="log-duration" name="duration" type="number" required placeholder="40" />
           </FormField>
           <FormField id="log-remarks" label="Remarks">
             <textarea
               id="log-remarks"
+              name="remarks"
               className="field-control min-h-24 w-full"
               placeholder="Optional notes"
             />
           </FormField>
-          <Button type="submit" variant="primary">Submit Log</Button>
-          {saved ? (
-            <p className="text-sm text-emerald-700">Teaching log saved (demo).</p>
-          ) : null}
+          <Button type="submit" variant="primary" disabled={busy}>
+            Submit Log
+          </Button>
+          {error ? <p className="text-sm text-rose-600">{error}</p> : null}
+          {saved ? <p className="text-sm text-emerald-700">Teaching log saved.</p> : null}
         </form>
       </Card>
     </div>
@@ -497,7 +959,59 @@ export function TeacherTeachingLogPage() {
 }
 
 export function TeacherSyllabusPage() {
+  const { schoolId, teacher } = useTeacherContext();
+  const [schoolName, setSchoolName] = useState('');
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!schoolId) return;
+      try {
+        const school = await getSchool(schoolId);
+        if (!cancelled) setSchoolName(school.name);
+      } catch {
+        if (!cancelled) setSchoolName('');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [schoolId]);
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!schoolId || !teacher) {
+      setError('Missing school or teacher profile.');
+      return;
+    }
+    const form = new FormData(e.currentTarget);
+    const completedPct = Number(form.get('pct') ?? 0) || 0;
+    setBusy(true);
+    setError(null);
+    setSaved(false);
+    try {
+      await createSyllabus({
+        schoolId,
+        schoolName: schoolName || schoolId,
+        teacherId: teacher.id,
+        teacherName: teacher.name,
+        classLabel: String(form.get('classLabel') ?? '7-A').trim() || '7-A',
+        subject: String(form.get('chapter') ?? '').trim(),
+        topic: String(form.get('topic') ?? '').trim(),
+        completedPct,
+        topicsDone: Math.round(completedPct / 4),
+        topicsTotal: 25,
+      });
+      setSaved(true);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to update syllabus'));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div>
@@ -506,25 +1020,33 @@ export function TeacherSyllabusPage() {
         description="Update chapter, topic and completion percentage for your classes."
       />
       <Card className="max-w-xl">
-        <form
-          className="space-y-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setSaved(true);
-          }}
-        >
+        <form className="space-y-4" onSubmit={(e) => void handleSubmit(e)}>
+          <FormField id="syl-class" label="Class label" required>
+            <Input id="syl-class" name="classLabel" required placeholder="7-A" />
+          </FormField>
           <FormField id="syl-chapter" label="Chapter" required>
-            <Input id="syl-chapter" required placeholder="Unit 3 · Graphics" />
+            <Input id="syl-chapter" name="chapter" required placeholder="Unit 3 · Graphics" />
           </FormField>
           <FormField id="syl-topic" label="Topic" required>
-            <Input id="syl-topic" required placeholder="Paint brush tools" />
+            <Input id="syl-topic" name="topic" required placeholder="Paint brush tools" />
           </FormField>
           <FormField id="syl-pct" label="Completion %" required>
-            <Input id="syl-pct" type="number" min={0} max={100} required placeholder="72" />
+            <Input
+              id="syl-pct"
+              name="pct"
+              type="number"
+              min={0}
+              max={100}
+              required
+              placeholder="72"
+            />
           </FormField>
-          <Button type="submit" variant="primary">Update Progress</Button>
+          <Button type="submit" variant="primary" disabled={busy}>
+            Update Progress
+          </Button>
+          {error ? <p className="text-sm text-rose-600">{error}</p> : null}
           {saved ? (
-            <p className="text-sm text-emerald-700">Syllabus progress updated (demo).</p>
+            <p className="text-sm text-emerald-700">Syllabus progress updated.</p>
           ) : null}
         </form>
       </Card>
@@ -534,18 +1056,12 @@ export function TeacherSyllabusPage() {
 
 export function TeacherLeavePage() {
   const { user } = useAuth();
-  const schoolId = useTeacherSchool();
-  const teacherId = resolveTeacherId(user?.email, user?.name);
-  const teacher = teachers.find((t) => t.id === teacherId);
-
-  const [history, setHistory] = useState<LeaveRequest[]>(() =>
-    seedLeaves
-      .filter((l) => l.teacherId === teacherId)
-      .map((l) => ({ ...l }))
-      .sort((a, b) => b.fromDate.localeCompare(a.fromDate)),
-  );
+  const { schoolId, teacher } = useTeacherContext();
+  const [school, setSchool] = useState<School | null>(null);
+  const [history, setHistory] = useState<LeaveRequest[]>([]);
   const [panel, setPanel] = useState<'request' | 'balance' | 'history'>('request');
   const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
     type: 'Casual',
     fromDate: '',
@@ -553,26 +1069,57 @@ export function TeacherLeavePage() {
     reason: '',
   });
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [leavesData, schoolData] = await Promise.all([
+          listLeaves(teacher?.id ? { teacherId: teacher.id } : undefined),
+          schoolId ? getSchool(schoolId) : Promise.resolve(null),
+        ]);
+        if (cancelled) return;
+        setHistory(
+          leavesData
+            .filter((l) => !teacher || l.teacherId === teacher.id)
+            .sort((a, b) => b.fromDate.localeCompare(a.fromDate)),
+        );
+        setSchool(schoolData);
+      } catch (e) {
+        if (!cancelled) setError(apiErrorMessage(e, 'Failed to load leaves'));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [teacher, schoolId]);
+
   const stats = useMemo(() => computeLeaveStats(history), [history]);
   const myRequests = history.filter((l) => l.status === 'Pending');
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!form.fromDate || !form.toDate || !form.reason.trim()) return;
-
-    const next: LeaveRequest = {
-      id: `lv_${Date.now()}`,
-      teacherId,
-      teacherName: teacher?.name ?? user?.name ?? 'Teacher',
-      type: form.type,
-      fromDate: form.fromDate,
-      toDate: form.toDate,
-      reason: form.reason.trim(),
-      status: 'Pending',
-    };
-    setHistory((prev) => [next, ...prev]);
-    setForm({ type: 'Casual', fromDate: '', toDate: '', reason: '' });
-    setSent(true);
+    if (!teacher) {
+      setError('Teacher profile not found.');
+      return;
+    }
+    setError(null);
+    try {
+      const created = await createLeave({
+        teacherId: teacher.id,
+        teacherName: teacher.name ?? user?.name ?? 'Teacher',
+        type: form.type,
+        fromDate: form.fromDate,
+        toDate: form.toDate,
+        reason: form.reason.trim(),
+        status: 'Pending',
+      });
+      setHistory((prev) => [created, ...prev]);
+      setForm({ type: 'Casual', fromDate: '', toDate: '', reason: '' });
+      setSent(true);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to submit leave'));
+    }
   };
 
   const tabs: { id: typeof panel; label: string; count?: number }[] = [
@@ -585,8 +1132,9 @@ export function TeacherLeavePage() {
     <div>
       <PageHeader
         title="My leave"
-        description={`${teacher?.name ?? 'Teacher'} · ${schoolById(schoolId)?.name ?? 'School'} · track balance, requests and history`}
+        description={`${teacher?.name ?? 'Teacher'} · ${school?.name ?? 'School'} · track balance, requests and history`}
       />
+      {error ? <p className="mb-4 text-sm text-rose-600">{error}</p> : null}
 
       <section className="mb-5 overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 text-white dark:border-slate-700">
         <div className="grid gap-px sm:grid-cols-3">
@@ -642,7 +1190,7 @@ export function TeacherLeavePage() {
         <div className="grid gap-4 lg:grid-cols-5">
           <Card className="lg:col-span-3" padding="lg">
             <SectionTitle>Submit leave request</SectionTitle>
-            <form className="mt-3 space-y-4" noValidate onSubmit={handleSubmit}>
+            <form className="mt-3 space-y-4" noValidate onSubmit={(e) => void handleSubmit(e)}>
               <FormField id="lv-type" label="Leave type" required>
                 <select
                   id="lv-type"
@@ -818,8 +1366,27 @@ export function TeacherLeavePage() {
 }
 
 export function TeacherAssetsPage() {
-  const schoolId = useTeacherSchool();
-  const schoolAssets = assets.filter((a) => a.schoolId === schoolId);
+  const { schoolId } = useTeacherContext();
+  const [schoolAssets, setSchoolAssets] = useState<Asset[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listAssets(schoolId ? { schoolId } : undefined);
+        if (!cancelled) setSchoolAssets(data);
+      } catch (e) {
+        if (!cancelled) setLoadError(apiErrorMessage(e, 'Failed to load assets'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [schoolId]);
 
   return (
     <div>
@@ -827,39 +1394,97 @@ export function TeacherAssetsPage() {
         title="Asset Verification"
         description="View assets assigned to your school. Report issues via support tickets."
       />
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
       <Card>
-        <DataTable headers={['Type', 'Quantity', 'Status', 'Warranty']}>
-          {schoolAssets.map((asset) => (
-            <tr key={asset.id}>
-              <Td className="font-medium text-slate-900">{asset.type}</Td>
-              <Td>{asset.quantity}</Td>
-              <Td>
-                <Badge
-                  tone={
-                    asset.workingStatus === 'Working'
-                      ? 'success'
-                      : asset.workingStatus === 'Needs Repair'
-                        ? 'warning'
-                        : 'danger'
-                  }
-                >
-                  {asset.workingStatus}
-                </Badge>
-              </Td>
-              <Td>{asset.warranty}</Td>
-            </tr>
-          ))}
-        </DataTable>
+        {loading ? (
+          <p className="py-8 text-center text-sm text-slate-500">Loading assets…</p>
+        ) : (
+          <DataTable headers={['Type', 'Quantity', 'Status', 'Warranty']}>
+            {schoolAssets.map((asset) => (
+              <tr key={asset.id}>
+                <Td className="font-medium text-slate-900">{asset.type}</Td>
+                <Td>{asset.quantity}</Td>
+                <Td>
+                  <Badge
+                    tone={
+                      asset.workingStatus === 'Working'
+                        ? 'success'
+                        : asset.workingStatus === 'Needs Repair'
+                          ? 'warning'
+                          : 'danger'
+                    }
+                  >
+                    {asset.workingStatus}
+                  </Badge>
+                </Td>
+                <Td>{asset.warranty}</Td>
+              </tr>
+            ))}
+          </DataTable>
+        )}
       </Card>
     </div>
   );
 }
 
 export function TeacherTicketsPage() {
-  const schoolId = useTeacherSchool();
-  const mine = tickets.filter((t) => t.schoolId === schoolId);
+  const { user } = useAuth();
+  const { schoolId } = useTeacherContext();
+  const [mine, setMine] = useState<SupportTicket[]>([]);
   const [step, setStep] = useState(1);
   const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [issueType, setIssueType] = useState('Hardware');
+  const [description, setDescription] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listTickets(schoolId ? { schoolId } : undefined);
+        if (!cancelled) setMine(data);
+      } catch (e) {
+        if (!cancelled) setError(apiErrorMessage(e, 'Failed to load tickets'));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [schoolId]);
+
+  async function submitTicket() {
+    if (!schoolId) {
+      setError('No school assigned.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const typeMap: Record<string, SupportTicket['type']> = {
+        'Computer Issue': 'Hardware',
+        'CPU Issue': 'Hardware',
+        'Keyboard Issue': 'Hardware',
+        'Mouse Issue': 'Hardware',
+        'Software Issue': 'Software',
+        'Internet Issue': 'Internet',
+      };
+      const created = await createTicket({
+        type: typeMap[issueType] ?? 'Others',
+        status: 'Open',
+        schoolId,
+        raisedBy: user?.name ?? 'Teacher',
+        description: description.trim() || issueType,
+        createdAt: localDateKey(),
+      });
+      setMine((prev) => [created, ...prev]);
+      setDone(true);
+    } catch (e) {
+      setError(apiErrorMessage(e, 'Failed to submit ticket'));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div>
@@ -867,6 +1492,7 @@ export function TeacherTicketsPage() {
         title="Raise Support Ticket"
         description="Report computer, CPU, keyboard, mouse, software or internet issues with photo and description."
       />
+      {error ? <p className="mb-4 text-sm text-rose-600">{error}</p> : null}
 
       <div className="mb-4 flex gap-2 text-xs font-semibold">
         {['Issue type', 'Photo', 'Description', 'Submit'].map((label, i) => (
@@ -888,7 +1514,11 @@ export function TeacherTicketsPage() {
           {step === 1 ? (
             <div className="space-y-4">
               <SectionTitle>Select issue type</SectionTitle>
-              <select className="field-control w-full">
+              <select
+                className="field-control w-full"
+                value={issueType}
+                onChange={(e) => setIssueType(e.target.value)}
+              >
                 <option>Computer Issue</option>
                 <option>CPU Issue</option>
                 <option>Keyboard Issue</option>
@@ -921,7 +1551,8 @@ export function TeacherTicketsPage() {
               <textarea
                 className="field-control min-h-28 w-full"
                 placeholder="Describe the issue"
-                defaultValue=""
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
               />
               <div className="flex gap-2">
                 <Button type="button" variant="ghost" onClick={() => setStep(2)}>
@@ -944,12 +1575,17 @@ export function TeacherTicketsPage() {
                   <Button type="button" variant="ghost" onClick={() => setStep(3)}>
                     Back
                   </Button>
-                  <Button type="button" variant="primary" onClick={() => setDone(true)}>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    disabled={busy}
+                    onClick={() => void submitTicket()}
+                  >
                     Submit Ticket
                   </Button>
                 </div>
               ) : (
-                <p className="text-sm font-medium text-emerald-700">Ticket submitted (demo).</p>
+                <p className="text-sm font-medium text-emerald-700">Ticket submitted.</p>
               )}
             </div>
           ) : null}
@@ -980,7 +1616,36 @@ export function TeacherTicketsPage() {
 }
 
 export function TeacherEventsPage() {
+  const { schoolId } = useTeacherContext();
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!schoolId) {
+      setError('No school assigned.');
+      return;
+    }
+    const formEl = e.currentTarget;
+    const form = new FormData(formEl);
+    setBusy(true);
+    setError(null);
+    try {
+      await createEvent({
+        schoolId,
+        name: String(form.get('name') ?? '').trim(),
+        date: localDateKey(),
+        description: String(form.get('description') ?? '').trim(),
+      });
+      formEl.reset();
+      setSaved(true);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to upload event'));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div>
@@ -989,26 +1654,32 @@ export function TeacherEventsPage() {
         description="Upload images with event name and description for your school."
       />
       <Card className="max-w-xl">
-        <form
-          className="space-y-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setSaved(true);
-          }}
-        >
+        <form className="space-y-4" onSubmit={(e) => void handleSubmit(e)}>
           <FormField id="ev-name" label="Event name" required>
-            <Input id="ev-name" required placeholder="Independence Day Tech Showcase" />
+            <Input id="ev-name" name="name" required placeholder="Independence Day Tech Showcase" />
           </FormField>
           <FormField id="ev-desc" label="Description" required>
-            <textarea id="ev-desc" className="field-control min-h-24 w-full" required />
+            <textarea
+              id="ev-desc"
+              name="description"
+              className="field-control min-h-24 w-full"
+              required
+            />
           </FormField>
           <FormField id="ev-images" label="Images" required>
-            <input id="ev-images" type="file" accept="image/*" multiple className="field-control w-full" />
+            <input
+              id="ev-images"
+              type="file"
+              accept="image/*"
+              multiple
+              className="field-control w-full"
+            />
           </FormField>
-          <Button type="submit" variant="primary">Upload Event</Button>
-          {saved ? (
-            <p className="text-sm text-emerald-700">Event uploaded (demo).</p>
-          ) : null}
+          <Button type="submit" variant="primary" disabled={busy}>
+            Upload Event
+          </Button>
+          {error ? <p className="text-sm text-rose-600">{error}</p> : null}
+          {saved ? <p className="text-sm text-emerald-700">Event uploaded.</p> : null}
         </form>
       </Card>
     </div>

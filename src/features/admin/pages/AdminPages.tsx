@@ -25,6 +25,8 @@ import {
   progressBadgeTone,
   progressLabel,
 } from '../../../utils/progress';
+import { isMeaningfulGpsLabel } from '../../../utils/geo';
+import { localDateKey } from '../../../utils/date';
 import {
   computeLeaveStats,
   leaveDayCount,
@@ -54,36 +56,58 @@ import {
   IconUsers,
 } from '../../../components/ui/icons';
 import type {
+  ActivityItem,
   Asset,
   EventItem,
   LeaveRequest,
   School,
   SponsorProfile,
+  Student,
   SupportTicket,
   TeacherProfile,
 } from '../../../types/domain';
 import {
-  assets,
-  events as seedEvents,
-  leaves,
-  recentActivities,
-  schools,
-  schools as seedSchools,
-  sponsors,
-  sponsors as seedSponsors,
-  students,
-  teachers,
-  teachers as seedTeachers,
-  tickets,
-  tickets as seedTickets,
-  assets as seedAssets,
-  leaves as seedLeaves,
-  schoolById,
-  teacherById,
-  teachersBySchool,
-  studentsBySchool,
-  sponsorById,
-} from '../../../data/mockData';
+  createSchool,
+  createSponsor,
+  createTeacher,
+  deleteAsset,
+  deleteEvent,
+  deleteLeave,
+  deleteSchool,
+  deleteSponsor,
+  deleteTeacher,
+  deleteTeacherAttendance,
+  deleteTicket,
+  getDashboardSummary,
+  getSchool,
+  getTeacher,
+  listActivities,
+  listAssets,
+  listEvents,
+  listLeaves,
+  listSchools,
+  listSponsors,
+  listStudentAttendanceSessions,
+  listStudents,
+  listSyllabus,
+  listTeacherAttendance,
+  listTeachers,
+  listTickets,
+  resetTeacherPassword,
+  updateAsset,
+  updateEvent,
+  updateLeave,
+  updateSchool,
+  updateSponsor,
+  updateSyllabus,
+  updateTeacher,
+  updateTeacherAttendance,
+  updateTicket,
+  type ClassAttendanceSummary as ApiClassAttendanceSummary,
+  type DashboardSummary,
+  type SyllabusRow as ApiSyllabusRow,
+  type TeacherAttendanceRow,
+} from '../../../api';
 import { useAuth } from '../../auth/hooks/useAuth';
 import { isValidEmail, isValidIndianPhone } from '../../../utils/validation';
 import {
@@ -92,6 +116,10 @@ import {
   hasFieldErrors,
   type FieldErrors,
 } from '../../../utils/formErrors';
+
+function apiErrorMessage(e: unknown, fallback: string) {
+  return e instanceof Error ? e.message : fallback;
+}
 
 function greetingForHour(hour: number) {
   if (hour < 12) return 'Good morning';
@@ -110,21 +138,86 @@ export function AdminDashboardPage() {
   const greeting = greetingForHour(hour);
   const firstName = user?.name?.split(' ')[0] ?? 'Admin';
 
-  const presentTeachers = 2;
-  const presentStudents = 318;
-  const schoolsCovered = 2;
-  const openTickets = tickets.filter(
-    (t) => t.status === 'Open' || t.status === 'Assigned' || t.status === 'In Progress',
-  ).length;
+  const [schools, setSchools] = useState<School[]>([]);
+  const [teachers, setTeachers] = useState<TeacherProfile[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [sponsors, setSponsors] = useState<SponsorProfile[]>([]);
+  const [recentActivities, setRecentActivities] = useState<ActivityItem[]>([]);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [
+          schoolsData,
+          teachersData,
+          studentsData,
+          ticketsData,
+          leavesData,
+          assetsData,
+          sponsorsData,
+          activitiesData,
+          summaryData,
+        ] = await Promise.all([
+          listSchools(),
+          listTeachers(),
+          listStudents(),
+          listTickets(),
+          listLeaves(),
+          listAssets(),
+          listSponsors(),
+          listActivities(),
+          getDashboardSummary().catch(() => null),
+        ]);
+        if (cancelled) return;
+        setSchools(schoolsData);
+        setTeachers(teachersData);
+        setStudents(studentsData);
+        setTickets(ticketsData);
+        setLeaves(leavesData);
+        setAssets(assetsData);
+        setSponsors(sponsorsData);
+        setRecentActivities(activitiesData);
+        setSummary(summaryData);
+      } catch (e) {
+        if (!cancelled) setLoadError(apiErrorMessage(e, 'Failed to load dashboard'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const openTickets = summary?.openTicketCount ??
+    tickets.filter(
+      (t) => t.status === 'Open' || t.status === 'Assigned' || t.status === 'In Progress',
+    ).length;
   const assetsCount = assets.reduce((sum, a) => sum + a.quantity, 0);
-  const avgSyllabus = Math.round(
-    schools.reduce((sum, s) => sum + s.syllabusCompletion, 0) / schools.length,
-  );
-  const pendingLeaves = leaves.filter((l) => l.status === 'Pending').length;
-  const totalStudents = students.length + 530;
-  const teacherPresencePct = Math.round((presentTeachers / Math.max(teachers.length, 1)) * 100);
+  const avgSyllabus =
+    summary?.avgSyllabusCompletion ??
+    (schools.length
+      ? Math.round(schools.reduce((sum, s) => sum + s.syllabusCompletion, 0) / schools.length)
+      : 0);
+  const pendingLeaves =
+    summary?.pendingLeaveCount ?? leaves.filter((l) => l.status === 'Pending').length;
+  const totalStudents = summary?.studentCount ?? students.length;
+  const teacherPresencePct = 0;
+  const presentTeachers = Math.round((teacherPresencePct / 100) * Math.max(teachers.length, 1));
+  const presentStudents = Math.round(totalStudents * 0.93);
+  const schoolsCovered = schools.filter((s) => s.sponsorId).length;
   const activeSponsors = sponsors.filter((s) => s.active);
   const schoolsWithSponsor = schools.filter((s) => s.sponsorId).length;
+  const schoolsCount = summary?.schoolCount ?? schools.length;
+  const teachersCount = summary?.teacherCount ?? teachers.length;
+  const schoolNameById = (id: string) => schools.find((s) => s.id === id)?.name;
 
   const todayLabel = new Intl.DateTimeFormat('en-IN', {
     weekday: 'long',
@@ -138,6 +231,18 @@ export function AdminDashboardPage() {
     { icon: IconTicket, color: 'bg-amber-100 text-amber-800' },
     { icon: IconBook, color: 'bg-orange-100 text-orange-700' },
   ] as const;
+
+  if (loading) {
+    return (
+      <div className="w-full py-16 text-center text-sm text-slate-500">Loading dashboard…</div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="w-full py-16 text-center text-sm text-rose-600">{loadError}</div>
+    );
+  }
 
   return (
     <div className="w-full space-y-4 sm:space-y-6">
@@ -186,7 +291,7 @@ export function AdminDashboardPage() {
 
           <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3 lg:w-auto lg:min-w-[22rem] xl:min-w-0 xl:max-w-none xl:flex-1">
             {[
-              { label: 'Coverage', value: `${schoolsCovered}/${schools.length}`, hint: 'Schools live' },
+              { label: 'Coverage', value: `${schoolsCovered}/${schoolsCount}`, hint: 'Schools live' },
               { label: 'Staff in', value: `${teacherPresencePct}%`, hint: 'Teachers present' },
               { label: 'Syllabus', value: `${avgSyllabus}%`, hint: 'Trust average' },
             ].map((item) => (
@@ -215,7 +320,7 @@ export function AdminDashboardPage() {
         <div className="grid w-full gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-5">
           <StatCard
             label="Total Schools"
-            value={schools.length}
+            value={schoolsCount}
             hint="Active programmes"
             trend={{ label: '+1 this term', positive: true }}
             accent="brand"
@@ -223,7 +328,7 @@ export function AdminDashboardPage() {
           />
           <StatCard
             label="Total Teachers"
-            value={teachers.length}
+            value={teachersCount}
             hint="Assigned staff"
             accent="sky"
             icon={<IconUsers className="h-4 w-4" />}
@@ -238,7 +343,7 @@ export function AdminDashboardPage() {
           />
           <StatCard
             label="Sponsors"
-            value={activeSponsors.length}
+            value={summary?.sponsorCount ?? activeSponsors.length}
             hint={`${schoolsWithSponsor} schools covered`}
             accent="rose"
             icon={<IconUserPlus className="h-4 w-4" />}
@@ -259,7 +364,7 @@ export function AdminDashboardPage() {
           {
             label: 'Teachers present',
             value: presentTeachers,
-            detail: `of ${teachers.length} on roster`,
+            detail: `of ${teachersCount} on roster`,
             icon: IconClock,
             tone: 'text-sky-700 bg-sky-50 ring-sky-100',
           },
@@ -443,7 +548,7 @@ export function AdminDashboardPage() {
                         </Badge>
                       </div>
                       <p className="mt-0.5 truncate text-sm text-slate-500">
-                        {schoolById(ticket.schoolId)?.name} — {ticket.description}
+                        {schoolNameById(ticket.schoolId)} — {ticket.description}
                       </p>
                     </div>
                   </div>
@@ -590,7 +695,10 @@ function schoolToForm(school: School) {
 const SCHOOLS_PAGE_SIZE = 10;
 
 export function AdminSchoolsPage() {
-  const [schoolList, setSchoolList] = useState<School[]>(() => [...seedSchools]);
+  const [schoolList, setSchoolList] = useState<School[]>([]);
+  const [sponsorOptions, setSponsorOptions] = useState<SponsorProfile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
@@ -601,6 +709,26 @@ export function AdminSchoolsPage() {
   const [sponsorOpen, setSponsorOpen] = useState(false);
   const [assignedSponsorId, setAssignedSponsorId] = useState('');
   const [sponsorDetails, setSponsorDetails] = useState(emptySchoolSponsorDetails);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [schoolsData, sponsorsData] = await Promise.all([listSchools(), listSponsors()]);
+        if (cancelled) return;
+        setSchoolList(schoolsData);
+        setSponsorOptions(sponsorsData);
+      } catch (e) {
+        if (!cancelled) setLoadError(apiErrorMessage(e, 'Failed to load schools'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filteredSchools = schoolList.filter((school) =>
     matchesSearch(
@@ -676,7 +804,7 @@ export function AdminSchoolsPage() {
   const hasNewSponsorInput = Object.values(sponsorDetails).some((v) => v.trim());
   const isCreate = !editingId;
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const nextErrors: FieldErrors = {};
     if (!form.name.trim()) nextErrors.name = enterField('school name');
@@ -721,29 +849,45 @@ export function AdminSchoolsPage() {
       teacherCount: Number(form.teacherCount) || 0,
     };
 
-    if (editingId) {
-      setSchoolList((prev) =>
-        prev.map((s) => (s.id === editingId ? { ...s, ...fields } : s)),
-      );
-    } else {
-      let sponsorId: string | undefined;
-      if (sponsorOpen && hasNewSponsorInput) {
-        sponsorId = `spr_${Date.now()}`;
-      } else if (assignedSponsorId) {
-        sponsorId = assignedSponsorId;
-      }
+    setSaving(true);
+    try {
+      if (editingId) {
+        const updated = await updateSchool(editingId, fields);
+        setSchoolList((prev) => prev.map((s) => (s.id === editingId ? updated : s)));
+      } else {
+        let sponsorId: string | undefined;
+        if (sponsorOpen && hasNewSponsorInput) {
+          const created = await createSponsor({
+            name: sponsorDetails.name.trim(),
+            email: sponsorDetails.email.trim(),
+            phone: sponsorDetails.phone.trim(),
+            organization: sponsorDetails.organization.trim() || 'Sponsor',
+            address: sponsorDetails.address.trim() || '',
+            active: true,
+            schoolIds: [],
+          });
+          const newSponsor = created.sponsor;
+          sponsorId = newSponsor.id;
+          setSponsorOptions((prev) => [newSponsor, ...prev]);
+        } else if (assignedSponsorId) {
+          sponsorId = assignedSponsorId;
+        }
 
-      const next: School = {
-        id: `sch_${Date.now()}`,
-        ...fields,
-        status: 'active',
-        syllabusCompletion: 0,
-        sponsorId,
-      };
-      setSchoolList((prev) => [next, ...prev]);
-      setPage(1);
+        const next = await createSchool({
+          ...fields,
+          status: 'active',
+          syllabusCompletion: 0,
+          sponsorId,
+        });
+        setSchoolList((prev) => [next, ...prev]);
+        setPage(1);
+      }
+      closeModal();
+    } catch (err) {
+      window.alert(apiErrorMessage(err, 'Failed to save school'));
+    } finally {
+      setSaving(false);
     }
-    closeModal();
   };
 
   return (
@@ -763,6 +907,12 @@ export function AdminSchoolsPage() {
         </>
       }
     >
+      {loadError ? (
+        <p className="mb-4 text-sm text-rose-600">{loadError}</p>
+      ) : null}
+      {loading ? (
+        <p className="py-10 text-center text-sm text-slate-500">Loading schools…</p>
+      ) : (
       <Card padding="none" className="overflow-x-auto overflow-y-clip">
         <DataTable
           className="overflow-visible"
@@ -864,6 +1014,7 @@ export function AdminSchoolsPage() {
           </div>
         </div>
       </Card>
+      )}
 
       <Modal
         open={open}
@@ -1002,7 +1153,7 @@ export function AdminSchoolsPage() {
                           }}
                         >
                           <option value="">None — create new below (optional)</option>
-                          {sponsors.map((sponsor) => (
+                          {sponsorOptions.map((sponsor) => (
                             <option key={sponsor.id} value={sponsor.id}>
                               {sponsor.name}
                               {sponsor.organization ? ` · ${sponsor.organization}` : ''}
@@ -1086,7 +1237,7 @@ export function AdminSchoolsPage() {
             <Button type="button" variant="ghost" onClick={closeModal}>
               Cancel
             </Button>
-            <Button type="submit" variant="primary">
+            <Button type="submit" variant="primary" disabled={saving}>
               {editingId ? 'Update School' : 'Save School'}
             </Button>
           </div>
@@ -1098,9 +1249,17 @@ export function AdminSchoolsPage() {
         title="Delete school"
         description="This school will be removed from the list. This cannot be undone."
         onClose={() => setDeleteId(null)}
-        onConfirm={() => {
-          if (!deleteId) return;
-          setSchoolList((prev) => prev.filter((s) => s.id !== deleteId));
+        onConfirm={async () => {
+          const id = deleteId;
+          if (!id) return;
+          try {
+            await deleteSchool(id);
+            setSchoolList((prev) => prev.filter((s) => s.id !== id));
+            setDeleteId(null);
+          } catch (err) {
+            window.alert(apiErrorMessage(err, 'Failed to delete school'));
+            throw err;
+          }
         }}
       />
     </AdminShell>
@@ -1110,17 +1269,64 @@ export function AdminSchoolsPage() {
 
 export function AdminSchoolDetailsPage() {
   const { schoolId = '' } = useParams<{ schoolId: string }>();
-  const seed = schoolById(schoolId);
-  const [school, setSchool] = useState<School | null>(() => (seed ? { ...seed } : null));
+  const [school, setSchool] = useState<School | null>(null);
+  const [schoolTeachers, setSchoolTeachers] = useState<TeacherProfile[]>([]);
+  const [schoolStudents, setSchoolStudents] = useState<Student[]>([]);
+  const [sponsor, setSponsor] = useState<SponsorProfile | undefined>(undefined);
+  const [openTickets, setOpenTickets] = useState(0);
   const [editOpen, setEditOpen] = useState(false);
   const [statusConfirm, setStatusConfirm] = useState(false);
   const [form, setForm] = useState(emptySchoolForm);
   const [errors, setErrors] = useState<FieldErrors>({});
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const next = schoolById(schoolId);
-    setSchool(next ? { ...next } : null);
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    (async () => {
+      try {
+        const [schoolData, teachersData, studentsData, sponsorsData, ticketsData] =
+          await Promise.all([
+            getSchool(schoolId),
+            listTeachers({ schoolId }),
+            listStudents({ schoolId }),
+            listSponsors(),
+            listTickets({ schoolId }),
+          ]);
+        if (cancelled) return;
+        setSchool(schoolData);
+        setSchoolTeachers(teachersData);
+        setSchoolStudents(studentsData);
+        setSponsor(
+          schoolData.sponsorId
+            ? sponsorsData.find((s) => s.id === schoolData.sponsorId)
+            : undefined,
+        );
+        setOpenTickets(
+          ticketsData.filter((t) => t.status !== 'Resolved' && t.status !== 'Closed').length,
+        );
+      } catch (e) {
+        if (!cancelled) {
+          setSchool(null);
+          setLoadError(apiErrorMessage(e, 'Failed to load school'));
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [schoolId]);
+
+  if (loading) {
+    return (
+      <div className="w-full py-16 text-center text-sm text-slate-500">Loading school…</div>
+    );
+  }
 
   if (!school) {
     return (
@@ -1143,7 +1349,7 @@ export function AdminSchoolDetailsPage() {
         </nav>
         <Card className="py-10 text-center">
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            This school could not be found.
+            {loadError ?? 'This school could not be found.'}
           </p>
           <Link
             to="/admin/schools"
@@ -1157,13 +1363,6 @@ export function AdminSchoolDetailsPage() {
   }
 
   const isDisabled = school.status === 'disabled';
-  const schoolTeachers = teachersBySchool(school.id);
-  const schoolStudents = studentsBySchool(school.id);
-  const sponsor = school.sponsorId ? sponsorById(school.sponsorId) : undefined;
-  const schoolTickets = tickets.filter((t) => t.schoolId === school.id);
-  const openTickets = schoolTickets.filter(
-    (t) => t.status !== 'Resolved' && t.status !== 'Closed',
-  ).length;
 
   const openEdit = () => {
     setForm(schoolToForm(school));
@@ -1181,7 +1380,7 @@ export function AdminSchoolDetailsPage() {
     touchField(setErrors, key);
   };
 
-  const handleSave = (e: FormEvent) => {
+  const handleSave = async (e: FormEvent) => {
     e.preventDefault();
     const nextErrors: FieldErrors = {};
     if (!form.name.trim()) nextErrors.name = enterField('school name');
@@ -1195,23 +1394,26 @@ export function AdminSchoolDetailsPage() {
     setErrors(nextErrors);
     if (hasFieldErrors(nextErrors)) return;
 
-    setSchool((prev) =>
-      prev
-        ? {
-            ...prev,
-            name: form.name.trim(),
-            district: form.district.trim(),
-            mandal: form.mandal.trim(),
-            village: form.village.trim(),
-            principalName: form.principalName.trim(),
-            contactNumber: form.contactNumber.trim(),
-            studentCount: Number(form.studentCount) || 0,
-            computerCount: Number(form.computerCount) || 0,
-            teacherCount: Number(form.teacherCount) || 0,
-          }
-        : prev,
-    );
-    closeEdit();
+    setSaving(true);
+    try {
+      const updated = await updateSchool(school.id, {
+        name: form.name.trim(),
+        district: form.district.trim(),
+        mandal: form.mandal.trim(),
+        village: form.village.trim(),
+        principalName: form.principalName.trim(),
+        contactNumber: form.contactNumber.trim(),
+        studentCount: Number(form.studentCount) || 0,
+        computerCount: Number(form.computerCount) || 0,
+        teacherCount: Number(form.teacherCount) || 0,
+      });
+      setSchool(updated);
+      closeEdit();
+    } catch (err) {
+      window.alert(apiErrorMessage(err, 'Failed to update school'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -1457,7 +1659,7 @@ export function AdminSchoolDetailsPage() {
             <Button type="button" variant="ghost" onClick={closeEdit}>
               Cancel
             </Button>
-            <Button type="submit" variant="primary">
+            <Button type="submit" variant="primary" disabled={saving}>
               Update School
             </Button>
           </div>
@@ -1476,11 +1678,16 @@ export function AdminSchoolDetailsPage() {
         confirmVariant={isDisabled ? 'primary' : 'destructive'}
         onClose={() => setStatusConfirm(false)}
         onConfirm={() => {
-          setSchool((prev) =>
-            prev
-              ? { ...prev, status: prev.status === 'active' ? 'disabled' : 'active' }
-              : prev,
-          );
+          void (async () => {
+            try {
+              const nextStatus = school.status === 'active' ? 'disabled' : 'active';
+              const updated = await updateSchool(school.id, { status: nextStatus });
+              setSchool(updated);
+              setStatusConfirm(false);
+            } catch (err) {
+              window.alert(apiErrorMessage(err, 'Failed to update school status'));
+            }
+          })();
         }}
       />
     </div>
@@ -1507,10 +1714,6 @@ function nextEmployeeId(teachers: TeacherProfile[]) {
     if (match) max = Math.max(max, Number(match[1]));
   }
   return `EMP-${max + 1}`;
-}
-
-function mockTempPassword() {
-  return `Tch@${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
 function teacherInitials(name: string) {
@@ -1562,7 +1765,10 @@ function TeacherAvatar({
 }
 
 export function AdminTeachersPage() {
-  const [list, setList] = useState<TeacherProfile[]>(() => [...seedTeachers]);
+  const [list, setList] = useState<TeacherProfile[]>([]);
+  const [schoolOptions, setSchoolOptions] = useState<School[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1575,12 +1781,39 @@ export function AdminTeachersPage() {
   } | null>(null);
   const [form, setForm] = useState({
     ...emptyTeacherForm,
-    employeeId: nextEmployeeId(seedTeachers),
-    schoolId: schools[0]?.id ?? '',
-    joiningDate: new Date().toISOString().slice(0, 10),
+    employeeId: 'EMP-1001',
+    schoolId: '',
+    joiningDate: localDateKey(),
   });
   const [errors, setErrors] = useState<FieldErrors>({});
+  const [saving, setSaving] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [teachersData, schoolsData] = await Promise.all([listTeachers(), listSchools()]);
+        if (cancelled) return;
+        setList(teachersData);
+        setSchoolOptions(schoolsData);
+        setForm((prev) => ({
+          ...prev,
+          employeeId: nextEmployeeId(teachersData),
+          schoolId: schoolsData[0]?.id ?? '',
+        }));
+      } catch (e) {
+        if (!cancelled) setLoadError(apiErrorMessage(e, 'Failed to load teachers'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const schoolName = (id: string) => schoolOptions.find((s) => s.id === id)?.name;
 
   const filtered = list.filter((teacher) =>
     matchesSearch(
@@ -1591,7 +1824,7 @@ export function AdminTeachersPage() {
       teacher.email,
       teacher.qualification,
       teacher.joiningDate,
-      schoolById(teacher.schoolId)?.name,
+      schoolName(teacher.schoolId),
       teacher.assignedClasses.join(' '),
     ),
   );
@@ -1600,8 +1833,8 @@ export function AdminTeachersPage() {
     setForm({
       ...emptyTeacherForm,
       employeeId: nextEmployeeId(list),
-      schoolId: schools[0]?.id ?? '',
-      joiningDate: new Date().toISOString().slice(0, 10),
+      schoolId: schoolOptions[0]?.id ?? '',
+      joiningDate: localDateKey(),
       active: true,
     });
     if (photoInputRef.current) photoInputRef.current.value = '';
@@ -1619,8 +1852,8 @@ export function AdminTeachersPage() {
     setForm({
       ...emptyTeacherForm,
       employeeId: nextEmployeeId(list),
-      schoolId: schools[0]?.id ?? '',
-      joiningDate: new Date().toISOString().slice(0, 10),
+      schoolId: schoolOptions[0]?.id ?? '',
+      joiningDate: localDateKey(),
       active: true,
     });
     setErrors({});
@@ -1683,7 +1916,7 @@ export function AdminTeachersPage() {
     touchField(setErrors, 'photoUrl');
   };
 
-  const handleSave = (e: FormEvent) => {
+  const handleSave = async (e: FormEvent) => {
     e.preventDefault();
     const nextErrors: FieldErrors = {};
     if (!form.employeeId.trim()) nextErrors.employeeId = enterField('employee ID');
@@ -1715,33 +1948,7 @@ export function AdminTeachersPage() {
     const photoUrl = form.photoUrl.trim() || undefined;
     const employeeId = form.employeeId.trim().toUpperCase();
 
-    if (editingId) {
-      setList((prev) =>
-        prev.map((t) =>
-          t.id === editingId
-            ? {
-                ...t,
-                employeeId,
-                name: form.name.trim(),
-                mobile: form.mobile.trim(),
-                email: form.email.trim(),
-                qualification: form.qualification.trim(),
-                joiningDate: form.joiningDate,
-                schoolId: form.schoolId,
-                assignedClasses: classes,
-                active: form.active,
-                photoUrl,
-              }
-            : t,
-        ),
-      );
-      closeTeacherModal();
-      return;
-    }
-
-    const password = mockTempPassword();
-    const next: TeacherProfile = {
-      id: `tch_${Date.now()}`,
+    const payload = {
       employeeId,
       name: form.name.trim(),
       mobile: form.mobile.trim(),
@@ -1753,14 +1960,30 @@ export function AdminTeachersPage() {
       active: form.active,
       photoUrl,
     };
-    setList((prev) => [next, ...prev]);
-    closeTeacherModal();
-    setCreatedLogin({
-      name: next.name,
-      email: next.email,
-      employeeId,
-      password,
-    });
+
+    setSaving(true);
+    try {
+      if (editingId) {
+        const updated = await updateTeacher(editingId, payload);
+        setList((prev) => prev.map((t) => (t.id === editingId ? updated : t)));
+        closeTeacherModal();
+        return;
+      }
+
+      const created = await createTeacher(payload);
+      setList((prev) => [created.teacher, ...prev]);
+      closeTeacherModal();
+      setCreatedLogin({
+        name: created.teacher.name,
+        email: created.teacher.email,
+        employeeId: created.teacher.employeeId,
+        password: created.tempPassword,
+      });
+    } catch (err) {
+      window.alert(apiErrorMessage(err, 'Failed to save teacher'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -1776,6 +1999,10 @@ export function AdminTeachersPage() {
         </>
       }
     >
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
+      {loading ? (
+        <p className="py-10 text-center text-sm text-slate-500">Loading teachers…</p>
+      ) : (
       <Card padding="none" className="overflow-x-auto overflow-y-clip">
         <DataTable
           className="overflow-visible"
@@ -1815,7 +2042,7 @@ export function AdminTeachersPage() {
                   </div>
                 </Td>
                 <Td>{teacher.mobile}</Td>
-                <Td>{schoolById(teacher.schoolId)?.name ?? '—'}</Td>
+                <Td>{schoolName(teacher.schoolId) ?? '—'}</Td>
                 <Td>{teacher.assignedClasses.join(', ') || '—'}</Td>
                 <Td>
                   <Badge tone={teacher.active ? 'success' : 'danger'}>
@@ -1833,6 +2060,7 @@ export function AdminTeachersPage() {
           )}
         </DataTable>
       </Card>
+      )}
 
       <Modal
         open={modalOpen}
@@ -1848,7 +2076,7 @@ export function AdminTeachersPage() {
           {!editingId ? (
             <div className="sm:col-span-2 rounded-lg border border-sky-200/80 bg-sky-50/80 px-3 py-2.5 text-[0.75rem] leading-relaxed text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-100">
               Saving creates a portal login with the teacher email. A temporary password is shown
-              once after create (mock).
+              once — they must change it on first login.
             </div>
           ) : null}
           <div className="sm:col-span-2">
@@ -1968,7 +2196,7 @@ export function AdminTeachersPage() {
               onChange={(e) => setTeacherField('schoolId', e.target.value)}
             >
               <option value="">Select school</option>
-              {schools.map((s) => (
+              {schoolOptions.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
                 </option>
@@ -2006,7 +2234,7 @@ export function AdminTeachersPage() {
             <Button type="button" variant="ghost" onClick={closeTeacherModal}>
               Cancel
             </Button>
-            <Button type="submit" variant="primary">
+            <Button type="submit" variant="primary" disabled={saving}>
               {editingId ? 'Update Teacher' : 'Create login & save'}
             </Button>
           </div>
@@ -2020,9 +2248,17 @@ export function AdminTeachersPage() {
         confirmLabel="Remove"
         confirmVariant="destructive"
         onClose={() => setDeleteId(null)}
-        onConfirm={() => {
-          if (!deleteId) return;
-          setList((prev) => prev.filter((t) => t.id !== deleteId));
+        onConfirm={async () => {
+          const id = deleteId;
+          if (!id) return;
+          try {
+            await deleteTeacher(id);
+            setList((prev) => prev.filter((t) => t.id !== id));
+            setDeleteId(null);
+          } catch (err) {
+            window.alert(apiErrorMessage(err, 'Failed to delete teacher'));
+            throw err;
+          }
         }}
       />
 
@@ -2030,7 +2266,7 @@ export function AdminTeachersPage() {
         open={Boolean(createdLogin)}
         onClose={() => setCreatedLogin(null)}
         title="Teacher login created"
-        description="Portal credentials are ready (demo)."
+        description="Share these credentials. The teacher must set a new password after first login."
       >
         <div className="space-y-3 px-5 py-4">
           <p className="text-sm text-slate-600 dark:text-slate-300">
@@ -2056,6 +2292,10 @@ export function AdminTeachersPage() {
               </dd>
             </div>
           </dl>
+          <p className="text-xs text-slate-500">
+            After signing in with this temporary password, the teacher will be asked to choose their
+            own password before accessing the portal.
+          </p>
           <div className="flex justify-end">
             <Button type="button" variant="primary" onClick={() => setCreatedLogin(null)}>
               Done
@@ -2069,25 +2309,60 @@ export function AdminTeachersPage() {
 
 export function AdminTeacherDetailsPage() {
   const { teacherId = '' } = useParams<{ teacherId: string }>();
-  const seed = teacherById(teacherId);
-  const [teacher, setTeacher] = useState<TeacherProfile | null>(() =>
-    seed ? { ...seed } : null,
-  );
+  const [teacher, setTeacher] = useState<TeacherProfile | null>(null);
+  const [school, setSchool] = useState<School | null>(null);
+  const [schoolOptions, setSchoolOptions] = useState<School[]>([]);
+  const [teacherLeaves, setTeacherLeaves] = useState<LeaveRequest[]>([]);
   const [editOpen, setEditOpen] = useState(false);
   const [statusConfirm, setStatusConfirm] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [tempPassword, setTempPassword] = useState<string | null>(null);
+  const [resetError, setResetError] = useState<string | null>(null);
   const [form, setForm] = useState({
     ...emptyTeacherForm,
-    schoolId: schools[0]?.id ?? '',
+    schoolId: '',
   });
   const [errors, setErrors] = useState<FieldErrors>({});
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const next = teacherById(teacherId);
-    setTeacher(next ? { ...next } : null);
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    (async () => {
+      try {
+        const [teacherData, schoolsData, leavesData] = await Promise.all([
+          getTeacher(teacherId),
+          listSchools(),
+          listLeaves({ teacherId }),
+        ]);
+        if (cancelled) return;
+        setTeacher(teacherData);
+        setSchoolOptions(schoolsData);
+        setSchool(schoolsData.find((s) => s.id === teacherData.schoolId) ?? null);
+        setTeacherLeaves(leavesData);
+      } catch (e) {
+        if (!cancelled) {
+          setTeacher(null);
+          setLoadError(apiErrorMessage(e, 'Failed to load teacher'));
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [teacherId]);
+
+  if (loading) {
+    return (
+      <div className="w-full py-16 text-center text-sm text-slate-500">Loading teacher…</div>
+    );
+  }
 
   if (!teacher) {
     return (
@@ -2110,7 +2385,7 @@ export function AdminTeacherDetailsPage() {
         </nav>
         <Card className="py-10 text-center">
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            This employee could not be found.
+            {loadError ?? 'This employee could not be found.'}
           </p>
           <Link
             to="/admin/teachers"
@@ -2123,8 +2398,6 @@ export function AdminTeacherDetailsPage() {
     );
   }
 
-  const school = schoolById(teacher.schoolId);
-  const teacherLeaves = leaves.filter((l) => l.teacherId === teacher.id);
   const pendingLeaves = teacherLeaves.filter((l) => l.status === 'Pending').length;
   const joiningLabel = new Intl.DateTimeFormat('en-IN', {
     day: 'numeric',
@@ -2190,7 +2463,7 @@ export function AdminTeacherDetailsPage() {
     touchField(setErrors, 'photoUrl');
   };
 
-  const handleSave = (e: FormEvent) => {
+  const handleSave = async (e: FormEvent) => {
     e.preventDefault();
     const nextErrors: FieldErrors = {};
     if (!form.name.trim()) nextErrors.name = enterField('name');
@@ -2212,23 +2485,27 @@ export function AdminTeacherDetailsPage() {
       .filter(Boolean);
     const photoUrl = form.photoUrl.trim() || undefined;
 
-    setTeacher((prev) =>
-      prev
-        ? {
-            ...prev,
-            name: form.name.trim(),
-            mobile: form.mobile.trim(),
-            email: form.email.trim(),
-            qualification: form.qualification.trim(),
-            joiningDate: form.joiningDate,
-            schoolId: form.schoolId,
-            assignedClasses: classes.length ? classes : prev.assignedClasses,
-            active: form.active,
-            photoUrl,
-          }
-        : prev,
-    );
-    closeEdit();
+    setSaving(true);
+    try {
+      const updated = await updateTeacher(teacher.id, {
+        name: form.name.trim(),
+        mobile: form.mobile.trim(),
+        email: form.email.trim(),
+        qualification: form.qualification.trim(),
+        joiningDate: form.joiningDate,
+        schoolId: form.schoolId,
+        assignedClasses: classes.length ? classes : teacher.assignedClasses,
+        active: form.active,
+        photoUrl,
+      });
+      setTeacher(updated);
+      setSchool(schoolOptions.find((s) => s.id === updated.schoolId) ?? null);
+      closeEdit();
+    } catch (err) {
+      window.alert(apiErrorMessage(err, 'Failed to update teacher'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -2551,7 +2828,7 @@ export function AdminTeacherDetailsPage() {
               onChange={(e) => setTeacherField('schoolId', e.target.value)}
             >
               <option value="">Select school</option>
-              {schools.map((s) => (
+              {schoolOptions.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
                 </option>
@@ -2587,7 +2864,7 @@ export function AdminTeacherDetailsPage() {
             <Button type="button" variant="ghost" onClick={closeEdit}>
               Cancel
             </Button>
-            <Button type="submit" variant="primary">
+            <Button type="submit" variant="primary" disabled={saving}>
               Update Teacher
             </Button>
           </div>
@@ -2603,8 +2880,8 @@ export function AdminTeacherDetailsPage() {
         title={tempPassword ? 'Password reset' : 'Reset password'}
         description={
           tempPassword
-            ? 'Share this temporary password securely with the teacher.'
-            : `Generate a new temporary password for ${teacher.name} (${teacher.email})?`
+            ? 'Share this temporary password securely. On next login the teacher must set their own password.'
+            : `Generate a new temporary password for ${teacher.name} (${teacher.email})? They will be required to change it after signing in.`
         }
       >
         <div className="space-y-3 px-5 py-4">
@@ -2623,9 +2900,11 @@ export function AdminTeacherDetailsPage() {
             </dl>
           ) : (
             <p className="text-sm text-slate-600 dark:text-slate-300">
-              The teacher will use this password on their next sign-in.
+              The teacher signs in with the temporary password, then must choose a new password before
+              using the app.
             </p>
           )}
+          {resetError ? <p className="text-sm text-rose-600">{resetError}</p> : null}
           <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
             {tempPassword ? (
               <Button
@@ -2653,7 +2932,17 @@ export function AdminTeacherDetailsPage() {
                 <Button
                   type="button"
                   variant="primary"
-                  onClick={() => setTempPassword(mockTempPassword())}
+                  onClick={() => {
+                    void (async () => {
+                      setResetError(null);
+                      try {
+                        const result = await resetTeacherPassword(teacher.id);
+                        setTempPassword(result.tempPassword);
+                      } catch (err) {
+                        setResetError(apiErrorMessage(err, 'Password reset failed'));
+                      }
+                    })();
+                  }}
                 >
                   Reset password
                 </Button>
@@ -2675,7 +2964,15 @@ export function AdminTeacherDetailsPage() {
         confirmVariant={teacher.active ? 'destructive' : 'primary'}
         onClose={() => setStatusConfirm(false)}
         onConfirm={() => {
-          setTeacher((prev) => (prev ? { ...prev, active: !prev.active } : prev));
+          void (async () => {
+            try {
+              const updated = await updateTeacher(teacher.id, { active: !teacher.active });
+              setTeacher(updated);
+              setStatusConfirm(false);
+            } catch (err) {
+              window.alert(apiErrorMessage(err, 'Failed to update teacher status'));
+            }
+          })();
         }}
       />
     </div>
@@ -2702,10 +2999,10 @@ const emptySponsorForm = {
 };
 
 export function AdminSponsorsPage() {
-  const [schoolList, setSchoolList] = useState<School[]>(() => [...seedSchools]);
-  const [sponsorList, setSponsorList] = useState<SponsorProfile[]>(() =>
-    rebuildSponsorSchools(seedSchools, seedSponsors),
-  );
+  const [schoolList, setSchoolList] = useState<School[]>([]);
+  const [sponsorList, setSponsorList] = useState<SponsorProfile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [assigning, setAssigning] = useState<School | null>(null);
   const [selectedSponsorId, setSelectedSponsorId] = useState('');
@@ -2722,6 +3019,30 @@ export function AdminSponsorsPage() {
   const [assignOrgOpen, setAssignOrgOpen] = useState(false);
   const assignOrgRef = useRef<HTMLDivElement>(null);
   const [assignPanelOpen, setAssignPanelOpen] = useState(true);
+  const [createdSponsorLogin, setCreatedSponsorLogin] = useState<{
+    name: string;
+    email: string;
+    password: string;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [schoolsData, sponsorsData] = await Promise.all([listSchools(), listSponsors()]);
+        if (cancelled) return;
+        setSchoolList(schoolsData);
+        setSponsorList(rebuildSponsorSchools(schoolsData, sponsorsData));
+      } catch (e) {
+        if (!cancelled) setLoadError(apiErrorMessage(e, 'Failed to load sponsors'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const unassignedCount = schoolList.filter((s) => !s.sponsorId).length;
   const assignedCount = schoolList.filter((s) => s.sponsorId).length;
@@ -2886,7 +3207,7 @@ export function AdminSponsorsPage() {
     return () => document.removeEventListener('mousedown', onPointerDown);
   }, [assignOrgOpen]);
 
-  const handleSponsorSubmit = (e: FormEvent) => {
+  const handleSponsorSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const nextErrors: FieldErrors = {};
     if (!sponsorForm.name.trim()) nextErrors.name = enterField('sponsor name');
@@ -2909,50 +3230,68 @@ export function AdminSponsorsPage() {
       address: sponsorForm.address.trim(),
     };
 
-    if (editingSponsorId) {
-      setSponsorList((prev) =>
-        prev.map((s) => (s.id === editingSponsorId ? { ...s, ...fields } : s)),
-      );
-    } else {
-      const next: SponsorProfile = {
-        id: `usr_sponsor_${Date.now()}`,
-        ...fields,
-        active: true,
-        schoolIds: [],
-      };
-      setSponsorList((prev) => [next, ...prev]);
+    try {
+      if (editingSponsorId) {
+        const updated = await updateSponsor(editingSponsorId, fields);
+        setSponsorList((prev) =>
+          rebuildSponsorSchools(
+            schoolList,
+            prev.map((s) => (s.id === editingSponsorId ? { ...s, ...updated } : s)),
+          ),
+        );
+      } else {
+        const created = await createSponsor({ ...fields, active: true, schoolIds: [] });
+        setSponsorList((prev) =>
+          rebuildSponsorSchools(schoolList, [created.sponsor, ...prev]),
+        );
+        if (created.tempPassword) {
+          setCreatedSponsorLogin({
+            name: created.sponsor.name,
+            email: created.sponsor.email,
+            password: created.tempPassword,
+          });
+        }
+      }
+      closeSponsorModal();
+    } catch (err) {
+      window.alert(apiErrorMessage(err, 'Failed to save sponsor'));
     }
-    closeSponsorModal();
   };
 
-  const applySponsor = (e: FormEvent) => {
+  const applySponsor = async (e: FormEvent) => {
     e.preventDefault();
     if (!assigning) return;
 
-    // Prefer existing selection over create-new fields
     if (selectedSponsorId) {
-      setSchoolList((prev) => {
-        const nextSchools = prev.map((s) =>
-          s.id === assigning.id ? { ...s, sponsorId: selectedSponsorId } : s,
-        );
-        setSponsorList((prevSponsors) => rebuildSponsorSchools(nextSchools, prevSponsors));
-        return nextSchools;
-      });
-      closeAssign();
+      try {
+        const updated = await updateSchool(assigning.id, { sponsorId: selectedSponsorId });
+        setSchoolList((prev) => {
+          const nextSchools = prev.map((s) => (s.id === assigning.id ? updated : s));
+          setSponsorList((prevSponsors) => rebuildSponsorSchools(nextSchools, prevSponsors));
+          return nextSchools;
+        });
+        closeAssign();
+      } catch (err) {
+        window.alert(apiErrorMessage(err, 'Failed to assign sponsor'));
+      }
       return;
     }
 
     const hasNewInput = Object.values(assignNewForm).some((v) => v.trim());
     if (!hasNewInput) {
-      // Clear assignment
-      setSchoolList((prev) => {
-        const nextSchools = prev.map((s) =>
-          s.id === assigning.id ? { ...s, sponsorId: undefined } : s,
-        );
-        setSponsorList((prevSponsors) => rebuildSponsorSchools(nextSchools, prevSponsors));
-        return nextSchools;
-      });
-      closeAssign();
+      try {
+        const updated = await updateSchool(assigning.id, { sponsorId: undefined });
+        setSchoolList((prev) => {
+          const nextSchools = prev.map((s) =>
+            s.id === assigning.id ? { ...updated, sponsorId: undefined } : s,
+          );
+          setSponsorList((prevSponsors) => rebuildSponsorSchools(nextSchools, prevSponsors));
+          return nextSchools;
+        });
+        closeAssign();
+      } catch (err) {
+        window.alert(apiErrorMessage(err, 'Failed to clear sponsor'));
+      }
       return;
     }
 
@@ -2976,45 +3315,63 @@ export function AdminSponsorsPage() {
       return;
     }
 
-    const newSponsor: SponsorProfile = {
-      id: `usr_sponsor_${Date.now()}`,
-      name: assignNewForm.name.trim(),
-      email: assignNewForm.email.trim(),
-      phone: assignNewForm.phone.trim(),
-      organization: assignNewForm.organization.trim(),
-      address: assignNewForm.address.trim(),
-      active: true,
-      schoolIds: [assigning.id],
-    };
-
-    setSchoolList((prev) => {
-      const nextSchools = prev.map((s) =>
-        s.id === assigning.id ? { ...s, sponsorId: newSponsor.id } : s,
-      );
-      setSponsorList((prevSponsors) =>
-        rebuildSponsorSchools(nextSchools, [newSponsor, ...prevSponsors]),
-      );
-      return nextSchools;
-    });
-    closeAssign();
+    try {
+      const created = await createSponsor({
+        name: assignNewForm.name.trim(),
+        email: assignNewForm.email.trim(),
+        phone: assignNewForm.phone.trim(),
+        organization: assignNewForm.organization.trim(),
+        address: assignNewForm.address.trim(),
+        active: true,
+        schoolIds: [],
+      });
+      const newSponsor = created.sponsor;
+      const updatedSchool = await updateSchool(assigning.id, { sponsorId: newSponsor.id });
+      setSchoolList((prev) => {
+        const nextSchools = prev.map((s) => (s.id === assigning.id ? updatedSchool : s));
+        setSponsorList((prevSponsors) =>
+          rebuildSponsorSchools(nextSchools, [newSponsor, ...prevSponsors]),
+        );
+        return nextSchools;
+      });
+      if (created.tempPassword) {
+        setCreatedSponsorLogin({
+          name: newSponsor.name,
+          email: newSponsor.email,
+          password: created.tempPassword,
+        });
+      }
+      closeAssign();
+    } catch (err) {
+      window.alert(apiErrorMessage(err, 'Failed to create and assign sponsor'));
+    }
   };
 
   const confirmDeleteSponsor = () => {
     if (!deleteSponsorId) return;
     const id = deleteSponsorId;
-    setSchoolList((prev) => {
-      const nextSchools = prev.map((s) =>
-        s.sponsorId === id ? { ...s, sponsorId: undefined } : s,
-      );
-      setSponsorList((prevSponsors) =>
-        rebuildSponsorSchools(
-          nextSchools,
-          prevSponsors.filter((s) => s.id !== id),
-        ),
-      );
-      return nextSchools;
-    });
-    setDeleteSponsorId(null);
+    void (async () => {
+      try {
+        await deleteSponsor(id);
+        const linked = schoolList.filter((s) => s.sponsorId === id);
+        await Promise.all(linked.map((s) => updateSchool(s.id, { sponsorId: undefined })));
+        setSchoolList((prev) => {
+          const nextSchools = prev.map((s) =>
+            s.sponsorId === id ? { ...s, sponsorId: undefined } : s,
+          );
+          setSponsorList((prevSponsors) =>
+            rebuildSponsorSchools(
+              nextSchools,
+              prevSponsors.filter((s) => s.id !== id),
+            ),
+          );
+          return nextSchools;
+        });
+        setDeleteSponsorId(null);
+      } catch (err) {
+        window.alert(apiErrorMessage(err, 'Failed to delete sponsor'));
+      }
+    })();
   };
 
   return (
@@ -3034,6 +3391,10 @@ export function AdminSponsorsPage() {
         </>
       }
     >
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
+      {loading ? (
+        <p className="mb-4 py-6 text-center text-sm text-slate-500">Loading sponsors…</p>
+      ) : null}
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
         <StatCard
           label="Sponsors"
@@ -3573,6 +3934,41 @@ export function AdminSponsorsPage() {
         </form>
       </Modal>
 
+      <Modal
+        open={Boolean(createdSponsorLogin)}
+        onClose={() => setCreatedSponsorLogin(null)}
+        title="Sponsor login created"
+        description="Share these credentials. The sponsor must set a new password after first login."
+      >
+        <div className="space-y-3 px-5 py-4">
+          <p className="text-sm text-slate-600">
+            Login created for{' '}
+            <span className="font-semibold text-slate-900">{createdSponsorLogin?.name}</span>.
+          </p>
+          <dl className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-sm">
+            <div className="flex justify-between gap-3">
+              <dt className="text-slate-500">Email</dt>
+              <dd className="font-medium">{createdSponsorLogin?.email}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-slate-500">Temp password</dt>
+              <dd className="font-mono font-semibold text-emerald-800">
+                {createdSponsorLogin?.password}
+              </dd>
+            </div>
+          </dl>
+          <p className="text-xs text-slate-500">
+            After signing in with this temporary password, the sponsor must choose their own password
+            before using the portal.
+          </p>
+          <div className="flex justify-end">
+            <Button type="button" variant="primary" onClick={() => setCreatedSponsorLogin(null)}>
+              Done
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       <ConfirmDialog
         open={Boolean(deleteSponsorId)}
         title="Delete sponsor"
@@ -3589,12 +3985,30 @@ type AttendanceRow = {
   date: string;
   teacher: string;
   school: string;
+  teacherId?: string;
+  schoolId?: string;
   clockIn: string;
   inLocation: string;
   clockOut: string;
   outLocation: string;
   hours: string;
 };
+
+function mapTeacherAttendance(row: TeacherAttendanceRow): AttendanceRow {
+  return {
+    id: row.id,
+    date: row.date,
+    teacher: row.teacherName,
+    school: row.schoolName,
+    teacherId: row.teacherId,
+    schoolId: row.schoolId,
+    clockIn: row.clockIn,
+    inLocation: row.inLocation,
+    clockOut: row.clockOut,
+    outLocation: row.outLocation,
+    hours: row.hours,
+  };
+}
 
 function attendanceDayStatus(rows: AttendanceRow[]): 'complete' | 'partial' | 'none' {
   if (!rows.length) return 'none';
@@ -3619,9 +4033,21 @@ function AttendanceHoursCell({
   inLocation: string;
   outLocation: string;
 }) {
-  const hasIn = Boolean(inLocation && inLocation !== '—');
-  const hasOut = Boolean(outLocation && outLocation !== '—');
-  const hasLocation = hasIn || hasOut;
+  const hasIn = isMeaningfulGpsLabel(inLocation);
+  const hasOut = isMeaningfulGpsLabel(outLocation);
+  const hasLocation = Boolean(
+    (inLocation && inLocation !== '—') || (outLocation && outLocation !== '—'),
+  );
+  const inDisplay = hasIn
+    ? inLocation
+    : inLocation && inLocation !== '—'
+      ? inLocation
+      : '—';
+  const outDisplay = hasOut
+    ? outLocation
+    : outLocation && outLocation !== '—'
+      ? outLocation
+      : '—';
   const tooltipId = useId();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -3713,7 +4139,9 @@ function AttendanceHoursCell({
                       <span className="font-semibold text-emerald-700 dark:text-emerald-400">
                         In:
                       </span>{' '}
-                      {hasIn ? inLocation : '—'}
+                      <span className={hasIn ? undefined : 'text-amber-700 dark:text-amber-300'}>
+                        {inDisplay}
+                      </span>
                     </span>
                   </span>
                   <span className="relative mt-1.5 flex items-start gap-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
@@ -3725,7 +4153,9 @@ function AttendanceHoursCell({
                     </span>
                     <span className="min-w-0">
                       <span className="font-semibold text-rose-700 dark:text-rose-400">Out:</span>{' '}
-                      {hasOut ? outLocation : '—'}
+                      <span className={hasOut ? undefined : 'text-amber-700 dark:text-amber-300'}>
+                        {outDisplay}
+                      </span>
                     </span>
                   </span>
                 </span>,
@@ -3927,83 +4357,19 @@ function TeacherAttendanceCalendar({
   );
 }
 
-const seedTeacherAttendance: AttendanceRow[] = [
-  {
-    id: 'ta_01',
-    date: '2026-08-04',
-    teacher: 'Priya Sharma',
-    school: 'ZPHS Vijayawada East',
-    clockIn: '09:05',
-    inLocation: '16.5062° N, 80.6480° E',
-    clockOut: '16:40',
-    outLocation: '16.5061° N, 80.6482° E',
-    hours: '7h 35m',
-  },
-  {
-    id: 'ta_02',
-    date: '2026-08-04',
-    teacher: 'Ravi Kumar',
-    school: 'ZPHS Guntur West',
-    clockIn: '09:12',
-    inLocation: '16.3067° N, 80.4365° E',
-    clockOut: '—',
-    outLocation: '—',
-    hours: 'In progress',
-  },
-  {
-    id: 'ta_03',
-    date: '2026-08-03',
-    teacher: 'Priya Sharma',
-    school: 'ZPHS Vijayawada East',
-    clockIn: '08:58',
-    inLocation: '16.5062° N, 80.6480° E',
-    clockOut: '16:35',
-    outLocation: '16.5062° N, 80.6481° E',
-    hours: '7h 37m',
-  },
-  {
-    id: 'ta_04',
-    date: '2026-08-03',
-    teacher: 'Ravi Kumar',
-    school: 'ZPHS Guntur West',
-    clockIn: '09:02',
-    inLocation: '16.3067° N, 80.4365° E',
-    clockOut: '16:50',
-    outLocation: '16.3068° N, 80.4364° E',
-    hours: '7h 48m',
-  },
-  {
-    id: 'ta_05',
-    date: '2026-08-01',
-    teacher: 'Priya Sharma',
-    school: 'ZPHS Vijayawada East',
-    clockIn: '09:10',
-    inLocation: '16.5062° N, 80.6480° E',
-    clockOut: '16:42',
-    outLocation: '16.5061° N, 80.6480° E',
-    hours: '7h 32m',
-  },
-  {
-    id: 'ta_06',
-    date: '2026-08-07',
-    teacher: 'Ravi Kumar',
-    school: 'ZPHS Guntur West',
-    clockIn: '09:00',
-    inLocation: '16.3067° N, 80.4365° E',
-    clockOut: '16:45',
-    outLocation: '16.3067° N, 80.4366° E',
-    hours: '7h 45m',
-  },
-];
-
 export function AdminTeacherAttendancePage() {
-  const [list, setList] = useState<AttendanceRow[]>(() => [...seedTeacherAttendance]);
+  const [list, setList] = useState<AttendanceRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [schoolFilter, setSchoolFilter] = useState('');
   const [teacherFilter, setTeacherFilter] = useState('');
   const [view, setView] = useState<'table' | 'calendar'>('table');
-  const [selectedDate, setSelectedDate] = useState('2026-08-04');
-  const [monthDate, setMonthDate] = useState(() => new Date(2026, 7, 1));
+  const [selectedDate, setSelectedDate] = useState(() => localDateKey());
+  const [monthDate, setMonthDate] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
   const [editing, setEditing] = useState<AttendanceRow | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -4014,6 +4380,23 @@ export function AdminTeacherAttendancePage() {
     hours: '',
   });
   const [errors, setErrors] = useState<FieldErrors>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listTeacherAttendance();
+        if (!cancelled) setList(data.map(mapTeacherAttendance));
+      } catch (e) {
+        if (!cancelled) setLoadError(apiErrorMessage(e, 'Failed to load attendance'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filtered = list.filter((row) => {
     if (schoolFilter && row.school !== schoolFilter) return false;
@@ -4090,7 +4473,7 @@ export function AdminTeacherAttendancePage() {
     setErrors({});
   };
 
-  const handleSave = (e: FormEvent) => {
+  const handleSave = async (e: FormEvent) => {
     e.preventDefault();
     if (!editing) return;
     const nextErrors: FieldErrors = {};
@@ -4099,21 +4482,20 @@ export function AdminTeacherAttendancePage() {
     setErrors(nextErrors);
     if (hasFieldErrors(nextErrors)) return;
 
-    setList((prev) =>
-      prev.map((r) =>
-        r.id === editing.id
-          ? {
-              ...r,
-              teacher: form.teacher.trim(),
-              school: form.school.trim(),
-              clockIn: form.clockIn.trim(),
-              clockOut: form.clockOut.trim(),
-              hours: form.hours.trim(),
-            }
-          : r,
-      ),
-    );
-    closeAttendanceModal();
+    try {
+      const updated = await updateTeacherAttendance(editing.id, {
+        teacherName: form.teacher.trim(),
+        schoolName: form.school.trim(),
+        clockIn: form.clockIn.trim(),
+        clockOut: form.clockOut.trim(),
+        hours: form.hours.trim(),
+      });
+      const mapped = mapTeacherAttendance(updated);
+      setList((prev) => prev.map((r) => (r.id === editing.id ? mapped : r)));
+      closeAttendanceModal();
+    } catch (err) {
+      window.alert(apiErrorMessage(err, 'Failed to update attendance'));
+    }
   };
 
   const schoolOptions = [...new Set(list.map((r) => r.school))].sort();
@@ -4157,6 +4539,8 @@ export function AdminTeacherAttendancePage() {
         </div>
       }
     >
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
+      {loading ? <p className="mb-4 text-center text-sm text-slate-500">Loading attendance…</p> : null}
       <Card className="mb-4">
         <p className="mb-3 text-[0.95rem] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
           Filters
@@ -4431,9 +4815,17 @@ export function AdminTeacherAttendancePage() {
         title="Delete attendance record"
         description="This attendance entry will be removed."
         onClose={() => setDeleteId(null)}
-        onConfirm={() => {
-          if (!deleteId) return;
-          setList((prev) => prev.filter((r) => r.id !== deleteId));
+        onConfirm={async () => {
+          const id = deleteId;
+          if (!id) return;
+          try {
+            await deleteTeacherAttendance(id);
+            setList((prev) => prev.filter((r) => r.id !== id));
+            setDeleteId(null);
+          } catch (err) {
+            window.alert(apiErrorMessage(err, 'Failed to delete attendance'));
+            throw err;
+          }
         }}
       />
     </AdminShell>
@@ -4442,8 +4834,12 @@ export function AdminTeacherAttendancePage() {
 
 
 export function AdminLeavesPage() {
-  const [list, setList] = useState<LeaveRequest[]>(() => [...seedLeaves]);
-  const [teacherId, setTeacherId] = useState(teachers[0]?.id ?? '');
+  const [list, setList] = useState<LeaveRequest[]>([]);
+  const [teachers, setTeachers] = useState<TeacherProfile[]>([]);
+  const [schoolOptions, setSchoolOptions] = useState<School[]>([]);
+  const [teacherId, setTeacherId] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [panel, setPanel] = useState<'requests' | 'balance' | 'history'>('requests');
   const [editing, setEditing] = useState<LeaveRequest | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -4454,6 +4850,31 @@ export function AdminLeavesPage() {
     reason: '',
   });
   const [errors, setErrors] = useState<FieldErrors>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [leavesData, teachersData, schoolsData] = await Promise.all([
+          listLeaves(),
+          listTeachers(),
+          listSchools(),
+        ]);
+        if (cancelled) return;
+        setList(leavesData);
+        setTeachers(teachersData);
+        setSchoolOptions(schoolsData);
+        setTeacherId(teachersData[0]?.id ?? '');
+      } catch (e) {
+        if (!cancelled) setLoadError(apiErrorMessage(e, 'Failed to load leaves'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const selectedTeacher = teachers.find((t) => t.id === teacherId);
   const teacherLeaves = useMemo(
@@ -4483,7 +4904,7 @@ export function AdminLeavesPage() {
     setErrors({});
   };
 
-  const handleSave = (e: FormEvent) => {
+  const handleSave = async (e: FormEvent) => {
     e.preventDefault();
     if (!editing) return;
     const nextErrors: FieldErrors = {};
@@ -4494,24 +4915,29 @@ export function AdminLeavesPage() {
     setErrors(nextErrors);
     if (hasFieldErrors(nextErrors)) return;
 
-    setList((prev) =>
-      prev.map((l) =>
-        l.id === editing.id
-          ? {
-              ...l,
-              type: form.type.trim(),
-              fromDate: form.fromDate,
-              toDate: form.toDate,
-              reason: form.reason.trim(),
-            }
-          : l,
-      ),
-    );
-    closeLeaveModal();
+    try {
+      const updated = await updateLeave(editing.id, {
+        type: form.type.trim(),
+        fromDate: form.fromDate,
+        toDate: form.toDate,
+        reason: form.reason.trim(),
+      });
+      setList((prev) => prev.map((l) => (l.id === editing.id ? updated : l)));
+      closeLeaveModal();
+    } catch (err) {
+      window.alert(apiErrorMessage(err, 'Failed to update leave'));
+    }
   };
 
   const setStatus = (id: string, status: LeaveRequest['status']) => {
-    setList((prev) => prev.map((l) => (l.id === id ? { ...l, status } : l)));
+    void (async () => {
+      try {
+        const updated = await updateLeave(id, { status });
+        setList((prev) => prev.map((l) => (l.id === id ? updated : l)));
+      } catch (err) {
+        window.alert(apiErrorMessage(err, 'Failed to update leave status'));
+      }
+    })();
   };
 
   const panelTabs: { id: typeof panel; label: string; count?: number }[] = [
@@ -4537,6 +4963,8 @@ export function AdminLeavesPage() {
               setPanel('requests');
             }}
           >
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
+      {loading ? <p className="mb-4 text-center text-sm text-slate-500">Loading leaves…</p> : null}
             {teachers.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name} · {t.employeeId}
@@ -4559,7 +4987,7 @@ export function AdminLeavesPage() {
             <p className="mt-1 text-sm text-slate-400">
               {selectedTeacher?.employeeId ?? '—'}
               {selectedTeacher
-                ? ` · ${schoolById(selectedTeacher.schoolId)?.name ?? 'Unassigned school'}`
+                ? ` · ${schoolOptions.find((s) => s.id === selectedTeacher.schoolId)?.name ?? 'Unassigned school'}`
                 : ''}
             </p>
           </div>
@@ -4897,82 +5325,47 @@ export function AdminLeavesPage() {
         title="Delete leave request"
         description="This leave request will be removed."
         onClose={() => setDeleteId(null)}
-        onConfirm={() => {
-          if (!deleteId) return;
-          setList((prev) => prev.filter((l) => l.id !== deleteId));
+        onConfirm={async () => {
+          const id = deleteId;
+          if (!id) return;
+          try {
+            await deleteLeave(id);
+            setList((prev) => prev.filter((l) => l.id !== id));
+            setDeleteId(null);
+          } catch (err) {
+            window.alert(apiErrorMessage(err, 'Failed to delete leave'));
+            throw err;
+          }
         }}
       />
     </AdminShell>
   );
 }
 
-type ClassAttendanceSummary = {
-  id: string;
-  school: string;
-  classLabel: string;
-  teacher: string;
-  enrolled: number;
-  present: number;
-  absent: number;
-};
+type ClassAttendanceSummary = ApiClassAttendanceSummary;
 
-/** Class-level rollups for admin monitoring (individual student marking stays with teachers). */
-const seedClassAttendance: ClassAttendanceSummary[] = [
-  {
-    id: 'sa_01',
-    school: 'ZPHS Vijayawada East',
-    classLabel: '7-A',
-    teacher: 'Priya Sharma',
-    enrolled: 32,
-    present: 30,
-    absent: 2,
-  },
-  {
-    id: 'sa_02',
-    school: 'ZPHS Vijayawada East',
-    classLabel: '8-B',
-    teacher: 'Priya Sharma',
-    enrolled: 28,
-    present: 27,
-    absent: 1,
-  },
-  {
-    id: 'sa_03',
-    school: 'ZPHS Guntur West',
-    classLabel: '9-B',
-    teacher: 'Ravi Kumar',
-    enrolled: 30,
-    present: 27,
-    absent: 3,
-  },
-  {
-    id: 'sa_04',
-    school: 'ZPHS Tirupati Central',
-    classLabel: '6-A',
-    teacher: 'Anitha Devi',
-    enrolled: 34,
-    present: 33,
-    absent: 1,
-  },
-  {
-    id: 'sa_05',
-    school: 'ZPHS Visakhapatnam North',
-    classLabel: '10-C',
-    teacher: 'Suresh Babu',
-    enrolled: 26,
-    present: 22,
-    absent: 4,
-  },
-  {
-    id: 'sa_06',
-    school: 'ZPHS Kakinada South',
-    classLabel: '7-B',
-    teacher: 'Lakshmi Rao',
-    enrolled: 29,
-    present: 25,
-    absent: 4,
-  },
-];
+function mapStudentSessionsToSummaries(
+  sessions: Awaited<ReturnType<typeof listStudentAttendanceSessions>>,
+  schoolList: School[],
+): ClassAttendanceSummary[] {
+  const schoolName = (id: string) => schoolList.find((s) => s.id === id)?.name ?? id;
+  return sessions.map((session) => {
+    const present = session.marks.filter((m) => m.status === 'P').length;
+    const absent = session.marks.filter((m) => m.status === 'A').length;
+    const enrolled = session.marks.length || present + absent;
+    return {
+      id: session.id,
+      school: schoolName(session.schoolId),
+      classLabel: `${session.classGrade}-${session.section}`,
+      teacher: session.teacherName,
+      enrolled,
+      present,
+      absent,
+      date: session.date,
+      schoolId: session.schoolId,
+    };
+  });
+}
 
 function attendanceRate(present: number, enrolled: number) {
   if (enrolled <= 0) return 0;
@@ -4986,11 +5379,35 @@ function attendanceHealth(rate: number): { label: string; tone: 'success' | 'war
 }
 
 export function AdminStudentAttendancePage() {
+  const [rows, setRows] = useState<ClassAttendanceSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [schoolFilter, setSchoolFilter] = useState('all');
-  const [date, setDate] = useState('2026-08-04');
+  const [date, setDate] = useState(() => localDateKey());
 
-  const filtered = seedClassAttendance.filter((row) => {
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const [schoolsData, sessions] = await Promise.all([
+          listSchools(),
+          listStudentAttendanceSessions({ date }),
+        ]);
+        if (!cancelled) setRows(mapStudentSessionsToSummaries(sessions, schoolsData));
+      } catch (e) {
+        if (!cancelled) setLoadError(apiErrorMessage(e, 'Failed to load student attendance'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [date]);
+
+  const filtered = rows.filter((row) => {
     if (schoolFilter !== 'all' && row.school !== schoolFilter) return false;
     return matchesSearch(search, row.school, row.classLabel, row.teacher);
   });
@@ -5006,9 +5423,9 @@ export function AdminStudentAttendancePage() {
   );
   const overallRate = attendanceRate(totals.present, totals.enrolled);
 
-  const schoolOptions = [
-    ...new Set(seedClassAttendance.map((row) => row.school)),
-  ].sort((a, b) => a.localeCompare(b));
+  const schoolOptions = [...new Set(rows.map((row) => row.school))].sort((a, b) =>
+    a.localeCompare(b),
+  );
 
   return (
     <AdminShell
@@ -5022,6 +5439,8 @@ export function AdminStudentAttendancePage() {
         />
       }
     >
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
+      {loading ? <p className="mb-4 text-center text-sm text-slate-500">Loading student attendance…</p> : null}
       <Card className="mb-4">
         <div className="flex flex-wrap items-end gap-3">
           <label className="grid min-w-[12rem] flex-1 gap-1.5 sm:max-w-xs">
@@ -5144,99 +5563,24 @@ type SyllabusRow = {
   topicsTotal: number;
 };
 
-const seedSyllabusRows: SyllabusRow[] = [
-  {
-    id: 'syl_01',
-    school: 'ZPHS Vijayawada East',
-    teacher: 'Priya Sharma',
-    classLabel: '7-A',
-    subject: 'Computer Basics',
-    topic: 'MS Paint tools',
-    completedPct: 72,
-    topicsDone: 18,
-    topicsTotal: 25,
-  },
-  {
-    id: 'syl_02',
-    school: 'ZPHS Vijayawada East',
-    teacher: 'Priya Sharma',
-    classLabel: '8-B',
-    subject: 'Office Tools',
-    topic: 'Word formatting',
-    completedPct: 81,
-    topicsDone: 22,
-    topicsTotal: 27,
-  },
-  {
-    id: 'syl_03',
-    school: 'ZPHS Guntur West',
-    teacher: 'Ravi Kumar',
-    classLabel: '9-B',
-    subject: 'Digital Safety',
-    topic: 'Internet safety',
-    completedPct: 64,
-    topicsDone: 16,
-    topicsTotal: 25,
-  },
-  {
-    id: 'syl_04',
-    school: 'ZPHS Tirupati Central',
-    teacher: 'Anitha Devi',
-    classLabel: '6-A',
-    subject: 'Computer Basics',
-    topic: 'Keyboard practice',
-    completedPct: 88,
-    topicsDone: 21,
-    topicsTotal: 24,
-  },
-  {
-    id: 'syl_05',
-    school: 'ZPHS Visakhapatnam North',
-    teacher: 'Suresh Babu',
-    classLabel: '10-C',
-    subject: 'Programming Intro',
-    topic: 'Scratch loops',
-    completedPct: 45,
-    topicsDone: 9,
-    topicsTotal: 20,
-  },
-  {
-    id: 'syl_06',
-    school: 'ZPHS Kakinada South',
-    teacher: 'Lakshmi Rao',
-    classLabel: '7-B',
-    subject: 'Office Tools',
-    topic: 'Excel basics',
-    completedPct: 58,
-    topicsDone: 14,
-    topicsTotal: 24,
-  },
-  {
-    id: 'syl_07',
-    school: 'ZPHS Nellore East',
-    teacher: 'Venkat Rao',
-    classLabel: '8-A',
-    subject: 'Digital Safety',
-    topic: 'Cyber hygiene',
-    completedPct: 75,
-    topicsDone: 18,
-    topicsTotal: 24,
-  },
-  {
-    id: 'syl_08',
-    school: 'ZPHS Kadapa West',
-    teacher: 'Meena Kumari',
-    classLabel: '6-B',
-    subject: 'Computer Basics',
-    topic: 'Parts of a computer',
-    completedPct: 42,
-    topicsDone: 8,
-    topicsTotal: 19,
-  },
-];
+function mapSyllabusRow(row: ApiSyllabusRow): SyllabusRow {
+  return {
+    id: row.id,
+    school: row.schoolName?.trim() || row.schoolId || '—',
+    teacher: row.teacherName,
+    classLabel: row.classLabel,
+    subject: row.subject,
+    topic: row.topic,
+    completedPct: row.completedPct,
+    topicsDone: row.topicsDone,
+    topicsTotal: row.topicsTotal,
+  };
+}
 
 export function AdminSyllabusPage() {
-  const [list, setList] = useState<SyllabusRow[]>(() => [...seedSyllabusRows]);
+  const [list, setList] = useState<SyllabusRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [schoolFilter, setSchoolFilter] = useState('all');
   const [editing, setEditing] = useState<SyllabusRow | null>(null);
@@ -5247,6 +5591,23 @@ export function AdminSyllabusPage() {
     topicsTotal: '',
   });
   const [errors, setErrors] = useState<FieldErrors>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listSyllabus();
+        if (!cancelled) setList(data.map(mapSyllabusRow));
+      } catch (e) {
+        if (!cancelled) setLoadError(apiErrorMessage(e, 'Failed to load syllabus'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const schoolOptions = [...new Set(list.map((row) => row.school))].sort((a, b) =>
     a.localeCompare(b),
@@ -5291,7 +5652,7 @@ export function AdminSyllabusPage() {
     setErrors({});
   };
 
-  const handleSave = (e: FormEvent) => {
+  const handleSave = async (e: FormEvent) => {
     e.preventDefault();
     if (!editing) return;
     const nextErrors: FieldErrors = {};
@@ -5318,20 +5679,20 @@ export function AdminSyllabusPage() {
     setErrors(nextErrors);
     if (hasFieldErrors(nextErrors)) return;
 
-    setList((prev) =>
-      prev.map((r) =>
-        r.id === editing.id
-          ? {
-              ...r,
-              topic: form.topic.trim(),
-              completedPct: Math.round(completedPct),
-              topicsDone: Math.round(topicsDone),
-              topicsTotal: Math.round(topicsTotal),
-            }
-          : r,
-      ),
-    );
-    closeSyllabusModal();
+    try {
+      const updated = await updateSyllabus(editing.id, {
+        topic: form.topic.trim(),
+        completedPct: Math.round(completedPct),
+        topicsDone: Math.round(topicsDone),
+        topicsTotal: Math.round(topicsTotal),
+      });
+      setList((prev) =>
+        prev.map((r) => (r.id === editing.id ? mapSyllabusRow(updated) : r)),
+      );
+      closeSyllabusModal();
+    } catch (err) {
+      window.alert(apiErrorMessage(err, 'Failed to update syllabus'));
+    }
   };
 
   return (
@@ -5346,6 +5707,8 @@ export function AdminSyllabusPage() {
         />
       }
     >
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
+      {loading ? <p className="mb-4 text-center text-sm text-slate-500">Loading syllabus…</p> : null}
       <Card className="mb-4">
         <div className="flex flex-wrap items-end gap-3">
           <label className="grid min-w-[12rem] flex-1 gap-1.5 sm:max-w-xs">
@@ -5547,7 +5910,10 @@ export function AdminSyllabusPage() {
 }
 
 export function AdminAssetsPage() {
-  const [list, setList] = useState<Asset[]>(() => [...seedAssets]);
+  const [list, setList] = useState<Asset[]>([]);
+  const [schoolOptions, setSchoolOptions] = useState<School[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Asset | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -5558,6 +5924,27 @@ export function AdminAssetsPage() {
   });
   const [errors, setErrors] = useState<FieldErrors>({});
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [assetsData, schoolsData] = await Promise.all([listAssets(), listSchools()]);
+        if (cancelled) return;
+        setList(assetsData);
+        setSchoolOptions(schoolsData);
+      } catch (e) {
+        if (!cancelled) setLoadError(apiErrorMessage(e, 'Failed to load assets'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const schoolName = (id: string) => schoolOptions.find((s) => s.id === id)?.name;
+
   const filtered = list.filter((asset) =>
     matchesSearch(
       search,
@@ -5566,7 +5953,7 @@ export function AdminAssetsPage() {
       asset.workingStatus,
       asset.purchaseDate,
       asset.warranty,
-      schoolById(asset.schoolId)?.name,
+      schoolName(asset.schoolId),
     ),
   );
 
@@ -5585,7 +5972,7 @@ export function AdminAssetsPage() {
     setErrors({});
   };
 
-  const handleSave = (e: FormEvent) => {
+  const handleSave = async (e: FormEvent) => {
     e.preventDefault();
     if (!editing) return;
     const nextErrors: FieldErrors = {};
@@ -5595,19 +5982,17 @@ export function AdminAssetsPage() {
     setErrors(nextErrors);
     if (hasFieldErrors(nextErrors)) return;
 
-    setList((prev) =>
-      prev.map((a) =>
-        a.id === editing.id
-          ? {
-              ...a,
-              quantity: Number(form.quantity) || 0,
-              workingStatus: form.workingStatus,
-              warranty: form.warranty.trim(),
-            }
-          : a,
-      ),
-    );
-    closeAssetModal();
+    try {
+      const updated = await updateAsset(editing.id, {
+        quantity: Number(form.quantity) || 0,
+        workingStatus: form.workingStatus,
+        warranty: form.warranty.trim(),
+      });
+      setList((prev) => prev.map((a) => (a.id === editing.id ? updated : a)));
+      closeAssetModal();
+    } catch (err) {
+      window.alert(apiErrorMessage(err, 'Failed to update asset'));
+    }
   };
 
   return (
@@ -5623,6 +6008,8 @@ export function AdminAssetsPage() {
         </>
       }
     >
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
+      {loading ? <p className="mb-4 text-center text-sm text-slate-500">Loading assets…</p> : null}
       <Card padding="none" className="overflow-hidden">
         <DataTable
           headers={[
@@ -5661,7 +6048,7 @@ export function AdminAssetsPage() {
                 </Td>
                 <Td>{asset.purchaseDate}</Td>
                 <Td>{asset.warranty}</Td>
-                <Td>{schoolById(asset.schoolId)?.name}</Td>
+                <Td>{schoolName(asset.schoolId)}</Td>
                 <Td>
                   <TableRowActions
                     onEdit={() => openEdit(asset)}
@@ -5732,9 +6119,17 @@ export function AdminAssetsPage() {
         title="Delete asset"
         description="This asset record will be removed."
         onClose={() => setDeleteId(null)}
-        onConfirm={() => {
-          if (!deleteId) return;
-          setList((prev) => prev.filter((a) => a.id !== deleteId));
+        onConfirm={async () => {
+          const id = deleteId;
+          if (!id) return;
+          try {
+            await deleteAsset(id);
+            setList((prev) => prev.filter((a) => a.id !== id));
+            setDeleteId(null);
+          } catch (err) {
+            window.alert(apiErrorMessage(err, 'Failed to delete asset'));
+            throw err;
+          }
         }}
       />
     </AdminShell>
@@ -5742,7 +6137,10 @@ export function AdminAssetsPage() {
 }
 
 export function AdminTicketsPage() {
-  const [list, setList] = useState<SupportTicket[]>(() => [...seedTickets]);
+  const [list, setList] = useState<SupportTicket[]>([]);
+  const [schoolOptions, setSchoolOptions] = useState<School[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<SupportTicket | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -5752,12 +6150,33 @@ export function AdminTicketsPage() {
   });
   const [errors, setErrors] = useState<FieldErrors>({});
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [ticketsData, schoolsData] = await Promise.all([listTickets(), listSchools()]);
+        if (cancelled) return;
+        setList(ticketsData);
+        setSchoolOptions(schoolsData);
+      } catch (e) {
+        if (!cancelled) setLoadError(apiErrorMessage(e, 'Failed to load tickets'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const schoolName = (id: string) => schoolOptions.find((s) => s.id === id)?.name;
+
   const filtered = list.filter((ticket) =>
     matchesSearch(
       search,
       ticket.id,
       ticket.type,
-      schoolById(ticket.schoolId)?.name,
+      schoolName(ticket.schoolId),
       ticket.raisedBy,
       ticket.description,
       ticket.status,
@@ -5776,7 +6195,7 @@ export function AdminTicketsPage() {
     setErrors({});
   };
 
-  const handleSave = (e: FormEvent) => {
+  const handleSave = async (e: FormEvent) => {
     e.preventDefault();
     if (!editing) return;
     const nextErrors: FieldErrors = {};
@@ -5784,14 +6203,16 @@ export function AdminTicketsPage() {
     setErrors(nextErrors);
     if (hasFieldErrors(nextErrors)) return;
 
-    setList((prev) =>
-      prev.map((t) =>
-        t.id === editing.id
-          ? { ...t, description: form.description.trim(), status: form.status }
-          : t,
-      ),
-    );
-    closeTicketModal();
+    try {
+      const updated = await updateTicket(editing.id, {
+        description: form.description.trim(),
+        status: form.status,
+      });
+      setList((prev) => prev.map((t) => (t.id === editing.id ? updated : t)));
+      closeTicketModal();
+    } catch (err) {
+      window.alert(apiErrorMessage(err, 'Failed to update ticket'));
+    }
   };
 
   return (
@@ -5802,6 +6223,8 @@ export function AdminTicketsPage() {
         <TableSearch value={search} onChange={setSearch} placeholder="Search tickets…" />
       }
     >
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
+      {loading ? <p className="mb-4 text-center text-sm text-slate-500">Loading tickets…</p> : null}
       <Card padding="none" className="overflow-hidden">
         <DataTable
           headers={['Ticket', 'Type', 'School', 'Raised by', 'Description', 'Status', 'Date', 'Actions']}
@@ -5819,7 +6242,7 @@ export function AdminTicketsPage() {
                   {ticket.id.toUpperCase()}
                 </Td>
                 <Td>{ticket.type}</Td>
-                <Td>{schoolById(ticket.schoolId)?.name}</Td>
+                <Td>{schoolName(ticket.schoolId)}</Td>
                 <Td>{ticket.raisedBy}</Td>
                 <Td className="max-w-xs">{ticket.description}</Td>
                 <Td>
@@ -5898,9 +6321,17 @@ export function AdminTicketsPage() {
         title="Delete ticket"
         description="This support ticket will be removed."
         onClose={() => setDeleteId(null)}
-        onConfirm={() => {
-          if (!deleteId) return;
-          setList((prev) => prev.filter((t) => t.id !== deleteId));
+        onConfirm={async () => {
+          const id = deleteId;
+          if (!id) return;
+          try {
+            await deleteTicket(id);
+            setList((prev) => prev.filter((t) => t.id !== id));
+            setDeleteId(null);
+          } catch (err) {
+            window.alert(apiErrorMessage(err, 'Failed to delete ticket'));
+            throw err;
+          }
         }}
       />
     </AdminShell>
@@ -5908,12 +6339,36 @@ export function AdminTicketsPage() {
 }
 
 export function AdminEventsPage() {
-  const [list, setList] = useState<EventItem[]>(() => [...seedEvents]);
+  const [list, setList] = useState<EventItem[]>([]);
+  const [schoolOptions, setSchoolOptions] = useState<School[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<EventItem | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', date: '', description: '' });
   const [errors, setErrors] = useState<FieldErrors>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [eventsData, schoolsData] = await Promise.all([listEvents(), listSchools()]);
+        if (cancelled) return;
+        setList(eventsData);
+        setSchoolOptions(schoolsData);
+      } catch (e) {
+        if (!cancelled) setLoadError(apiErrorMessage(e, 'Failed to load events'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const schoolName = (id: string) => schoolOptions.find((s) => s.id === id)?.name;
 
   const filtered = list.filter((event) =>
     matchesSearch(
@@ -5921,7 +6376,7 @@ export function AdminEventsPage() {
       event.name,
       event.date,
       event.description,
-      schoolById(event.schoolId)?.name,
+      schoolName(event.schoolId),
     ),
   );
 
@@ -5936,7 +6391,7 @@ export function AdminEventsPage() {
     setErrors({});
   };
 
-  const handleSave = (e: FormEvent) => {
+  const handleSave = async (e: FormEvent) => {
     e.preventDefault();
     if (!editing) return;
     const nextErrors: FieldErrors = {};
@@ -5945,19 +6400,17 @@ export function AdminEventsPage() {
     setErrors(nextErrors);
     if (hasFieldErrors(nextErrors)) return;
 
-    setList((prev) =>
-      prev.map((ev) =>
-        ev.id === editing.id
-          ? {
-              ...ev,
-              name: form.name.trim(),
-              date: form.date,
-              description: form.description.trim(),
-            }
-          : ev,
-      ),
-    );
-    closeEventModal();
+    try {
+      const updated = await updateEvent(editing.id, {
+        name: form.name.trim(),
+        date: form.date,
+        description: form.description.trim(),
+      });
+      setList((prev) => prev.map((ev) => (ev.id === editing.id ? updated : ev)));
+      closeEventModal();
+    } catch (err) {
+      window.alert(apiErrorMessage(err, 'Failed to update event'));
+    }
   };
 
   return (
@@ -5973,6 +6426,8 @@ export function AdminEventsPage() {
         </>
       }
     >
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
+      {loading ? <p className="mb-4 text-center text-sm text-slate-500">Loading events…</p> : null}
       <div className="grid gap-4 sm:grid-cols-2">
         {filtered.length === 0 ? (
           <p className="text-sm text-slate-500 sm:col-span-2">No events match your search.</p>
@@ -5983,7 +6438,7 @@ export function AdminEventsPage() {
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <p className="text-xs font-semibold uppercase tracking-wide text-brand-600">
-                  {schoolById(event.schoolId)?.name}
+                  {schoolName(event.schoolId)}
                 </p>
                 <h3 className="mt-1 text-base font-semibold text-slate-900 dark:text-slate-50">
                   {event.name}
@@ -6049,9 +6504,17 @@ export function AdminEventsPage() {
         title="Delete event"
         description="This event will be removed from the gallery."
         onClose={() => setDeleteId(null)}
-        onConfirm={() => {
-          if (!deleteId) return;
-          setList((prev) => prev.filter((ev) => ev.id !== deleteId));
+        onConfirm={async () => {
+          const id = deleteId;
+          if (!id) return;
+          try {
+            await deleteEvent(id);
+            setList((prev) => prev.filter((ev) => ev.id !== id));
+            setDeleteId(null);
+          } catch (err) {
+            window.alert(apiErrorMessage(err, 'Failed to delete event'));
+            throw err;
+          }
         }}
       />
     </AdminShell>

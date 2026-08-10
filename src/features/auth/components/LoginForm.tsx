@@ -30,17 +30,17 @@ const DEMO_ACCOUNTS = [
   {
     label: 'Admin',
     email: 'admin@chaitanyasaradhi.org',
-    password: 'demo123',
+    password: 'demo1234',
   },
   {
     label: 'Teacher',
     email: 'teacher@chaitanyasaradhi.org',
-    password: 'demo123',
+    password: 'demo1234',
   },
   {
     label: 'Sponsor',
     email: 'sponsor@chaitanyasaradhi.org',
-    password: 'demo123',
+    password: 'demo1234',
   },
 ] as const;
 
@@ -50,7 +50,7 @@ export function LoginForm() {
   const { login } = useAuth();
 
   const [email, setEmail] = useState('admin@chaitanyasaradhi.org');
-  const [password, setPassword] = useState('demo123');
+  const [password, setPassword] = useState('demo1234');
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -74,11 +74,17 @@ export function LoginForm() {
     setErrors({});
     try {
       const user = await login({ email, password, rememberMe: true });
+      if (user.mustChangePassword) {
+        navigate('/change-password', { replace: true });
+        return;
+      }
       const home = roleHomePath(user.role);
       const target =
         from &&
         from !== '/login' &&
         from !== '/signup' &&
+        from !== '/forgot-password' &&
+        from !== '/change-password' &&
         from !== '/dashboard' &&
         from.startsWith(home)
           ? from
@@ -127,7 +133,7 @@ export function LoginForm() {
       </FormField>
 
       <AuthActionsRow>
-        <AuthTextLink to="/forgot-password">Forgot password?</AuthTextLink>
+        <AuthTextLink to="/forgot-password">Forgot password? Ask admin</AuthTextLink>
       </AuthActionsRow>
 
       <Button type="submit" variant="primary" fullWidth disabled={isSubmitting} className={authPrimaryButtonClass}>

@@ -8,6 +8,8 @@ export interface AuthUser {
   role: UserRole;
   schoolId?: string;
   schoolIds?: string[];
+  /** True when account uses a temporary password and must set a new one. */
+  mustChangePassword?: boolean;
 }
 
 export interface LoginCredentials {

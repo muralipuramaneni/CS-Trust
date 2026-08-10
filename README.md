@@ -1,6 +1,6 @@
 # CS Trust
 
-Frontend for **Chaitanya Saradhi Trust**.
+Frontend for **Chaitanya Saradhi Trust**, wired to the FastAPI + PostgreSQL backend in `../CS-Trust-backend`.
 
 ## Stack
 
@@ -9,6 +9,11 @@ Frontend for **Chaitanya Saradhi Trust**.
 - React Router
 - Tailwind CSS v4
 
+## Prerequisites
+
+1. Backend API running at `http://127.0.0.1:8000` (see `../CS-Trust-backend/README.md`)
+2. PostgreSQL via Docker Compose from the backend folder
+
 ## Getting started
 
 ```bash
@@ -16,27 +21,26 @@ npm install
 npm run dev
 ```
 
-Open the app at the local URL Vite prints (default `http://localhost:5173`).
+Open `http://localhost:5173`. Vite proxies `/api` → `http://127.0.0.1:8000`.
 
-## Auth (Phase 1 — frontend only)
+Optional: set `VITE_API_BASE_URL` in `.env` (default `/api/v1`).
+
+## Auth
 
 | Route | Feature |
 |-------|---------|
-| `/login` | Email + password sign in |
-| `/signup` | Create account (name, email, phone, password) |
+| `/login` | Email + password (JWT) |
 | `/forgot-password` | Phone OTP → reset password |
-
-No backend yet — users and sessions are stored in browser `localStorage`.
 
 ### Demo credentials
 
-Password for all demo accounts: **`demo123`**
+Password for all seed accounts: **`demo1234`**
 
-| Role | Email | Phone |
-|------|-------|-------|
-| Super Admin | superadmin@chaitanyasaradhi.org | 9876543210 |
-| Admin | admin@chaitanyasaradhi.org | 9876543211 |
-| User | user@chaitanyasaradhi.org | 9876543212 |
+| Role | Email |
+|------|-------|
+| Admin | admin@chaitanyasaradhi.org |
+| Teacher | teacher@chaitanyasaradhi.org |
+| Sponsor | sponsor@chaitanyasaradhi.org |
 
 **Demo OTP (forgot password):** `123456`
 
@@ -44,10 +48,9 @@ Password for all demo accounts: **`demo123`**
 
 ```
 src/
-  components/ui + layout
-  features/auth/
-  pages/
-  routes/
+  api/           # HTTP client + resource helpers
+  components/    # UI + layout
+  features/      # auth, admin, teacher, sponsor
   types/
   utils/
 ```
