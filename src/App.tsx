@@ -10,11 +10,13 @@ import {
   AdminLeavesPage,
   AdminReportsPage,
   AdminSchoolsPage,
+  AdminSchoolDetailsPage,
   AdminSponsorsPage,
   AdminStudentAttendancePage,
   AdminSyllabusPage,
   AdminTeacherAttendancePage,
   AdminTeachersPage,
+  AdminTeacherDetailsPage,
   AdminTicketsPage,
 } from './features/admin/pages/AdminPages';
 import {
@@ -65,10 +67,26 @@ export default function App() {
         }
       />
       <Route
+        path="/admin/schools/:schoolId"
+        element={
+          <RoleRoute allow={['admin']}>
+            <AdminSchoolDetailsPage />
+          </RoleRoute>
+        }
+      />
+      <Route
         path="/admin/teachers"
         element={
           <RoleRoute allow={['admin']}>
             <AdminTeachersPage />
+          </RoleRoute>
+        }
+      />
+      <Route
+        path="/admin/teachers/:teacherId"
+        element={
+          <RoleRoute allow={['admin']}>
+            <AdminTeacherDetailsPage />
           </RoleRoute>
         }
       />

@@ -7,7 +7,14 @@ import { useAuth } from '../../features/auth/hooks/useAuth';
 import { navForRole } from '../../config/navigation';
 import { roleHomePath } from '../../types/auth';
 import { cn } from '../../utils/cn';
-import { IconBell, IconLogout, IconMenu, IconSearch } from '../ui/icons';
+import {
+  IconBell,
+  IconChevronLeft,
+  IconChevronRight,
+  IconLogout,
+  IconMenu,
+  IconSearch,
+} from '../ui/icons';
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -19,11 +26,20 @@ const roleLabel: Record<string, string> = {
   sponsor: 'Sponsor',
 };
 
+const SIDEBAR_COLLAPSED_KEY = 'cs-trust-sidebar-collapsed';
+
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
@@ -61,6 +77,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       .join('')
       .toUpperCase();
   }, [user?.name]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }, [collapsed]);
 
   useEffect(() => {
     if (!userMenuOpen) return;
@@ -105,10 +129,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         key={item.path}
         to={item.path}
         end={item.path === home}
+        title={collapsed ? item.label : undefined}
         onClick={() => setOpen(false)}
         className={({ isActive }) =>
           cn(
-            'group flex items-center gap-3 rounded-lg px-3 py-2.5 text-[0.84rem] font-medium transition-all duration-200',
+            'group flex items-center rounded-lg text-[0.84rem] font-medium transition-all duration-200',
+            collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5',
             isActive
               ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white'
               : 'text-slate-300 hover:bg-white/8 hover:text-white',
@@ -119,7 +145,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           <>
             <span
               className={cn(
-                'grid h-8 w-8 place-items-center rounded-lg transition',
+                'grid h-8 w-8 shrink-0 place-items-center rounded-lg transition',
                 isActive
                   ? 'bg-white/20 text-white'
                   : 'bg-white/5 text-slate-400 group-hover:bg-white/10 group-hover:text-orange-300',
@@ -127,16 +153,20 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             >
               <Icon className="h-4 w-4" />
             </span>
-            <span className="min-w-0 flex-1 truncate">{item.label}</span>
-            {item.readOnly ? (
-              <span
-                className={cn(
-                  'rounded-lg px-1.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-wide',
-                  isActive ? 'bg-white/15 text-white' : 'bg-sky-500/15 text-sky-300',
-                )}
-              >
-                View
-              </span>
+            {!collapsed ? (
+              <>
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                {item.readOnly ? (
+                  <span
+                    className={cn(
+                      'rounded-lg px-1.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-wide',
+                      isActive ? 'bg-white/15 text-white' : 'bg-sky-500/15 text-sky-300',
+                    )}
+                  >
+                    View
+                  </span>
+                ) : null}
+              </>
             ) : null}
           </>
         )}
@@ -156,33 +186,91 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       <div className="flex min-h-svh w-full">
         <aside
           className={cn(
-            'fixed inset-y-0 left-0 z-30 flex w-[min(17rem,88vw)] shrink-0 flex-col border-r transition-transform duration-300 lg:static lg:w-64 xl:w-[17rem] lg:translate-x-0',
+            'fixed inset-y-0 left-0 z-30 flex shrink-0 flex-col border-r transition-[width,transform] duration-300 ease-out lg:static lg:translate-x-0',
+            collapsed
+              ? 'w-[4.75rem] lg:w-[4.75rem]'
+              : 'w-[min(17rem,88vw)] lg:w-64 xl:w-[17rem]',
             'border-white/8 bg-[#0b1220] text-slate-100 shadow-[inset_-1px_0_0_rgba(255,255,255,0.04)]',
             open ? 'translate-x-0' : '-translate-x-full',
           )}
         >
-          <div className="border-b border-white/8 px-3 py-4">
+          <div
+            className={cn(
+              'flex shrink-0 items-center gap-1 border-b border-white/8 py-3',
+              collapsed ? 'flex-col gap-2 px-2' : 'px-2.5',
+            )}
+          >
             <Link
               to={home}
-              className="inline-flex min-w-0 items-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+              className={cn(
+                'inline-flex min-w-0 items-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400',
+                collapsed ? 'justify-center' : 'flex-1',
+              )}
               onClick={() => setOpen(false)}
+              title="Chaitanya Saradhi Trust"
             >
-              <BrandMark size="sm" showName theme="dark" />
+              <BrandMark size="sm" showName={!collapsed} theme="dark" />
             </Link>
+            <button
+              type="button"
+              onClick={() => setCollapsed((value) => !value)}
+              className={cn(
+                'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400',
+                collapsed && 'mx-auto',
+              )}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-expanded={!collapsed}
+              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              {collapsed ? (
+                <IconChevronRight className="h-4 w-4" />
+              ) : (
+                <IconChevronLeft className="h-4 w-4" />
+              )}
+            </button>
           </div>
 
-          <nav className="flex-1 space-y-5 overflow-y-auto px-2.5 py-4" aria-label="Main">
+          <nav
+            className={cn('flex-1 space-y-5 py-4', collapsed ? 'px-1.5' : 'px-2.5')}
+            aria-label="Main"
+          >
             {groups
               ? [...groups.entries()].map(([group, groupItems]) => (
                   <div key={group}>
-                    <p className="mb-1.5 px-3 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                      {group}
-                    </p>
+                    {!collapsed ? (
+                      <p className="mb-1.5 px-3 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        {group}
+                      </p>
+                    ) : (
+                      <div className="mx-auto mb-1.5 h-px w-6 bg-white/10" aria-hidden />
+                    )}
                     <div className="space-y-0.5">{groupItems.map(renderNavItem)}</div>
                   </div>
                 ))
               : items.map(renderNavItem)}
           </nav>
+
+          <div
+            className={cn(
+              'mt-auto shrink-0 border-t border-white/8 py-3',
+              collapsed ? 'px-1.5' : 'px-3',
+            )}
+          >
+            {collapsed ? (
+              <p className="text-center text-[0.6rem] leading-tight text-slate-500">
+                © {new Date().getFullYear()}
+              </p>
+            ) : (
+              <>
+                <p className="text-center text-[0.65rem] leading-relaxed text-slate-500">
+                  © {new Date().getFullYear()} Chaitanya Saradhi Trust
+                </p>
+                <p className="mt-0.5 text-center text-[0.62rem] leading-relaxed text-slate-600">
+                  All rights reserved.
+                </p>
+              </>
+            )}
+          </div>
         </aside>
 
         {open ? (

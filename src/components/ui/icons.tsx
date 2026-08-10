@@ -63,6 +63,14 @@ export const IconCalendar = icon(
   </>,
 );
 
+export const IconHistory = icon(
+  <>
+    <path d="M3 12a9 9 0 1 0 3-6.7" />
+    <path d="M3 4v5h5" />
+    <path d="M12 7v5l3 2" />
+  </>,
+);
+
 export const IconClipboard = icon(
   <>
     <rect x="5" y="4" width="14" height="17" rx="2" />
@@ -259,5 +267,13 @@ export const IconTrash = icon(
     <path d="M10 11v6M14 11v6" />
     <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" />
     <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+  </>,
+);
+
+export const IconKey = icon(
+  <>
+    <circle cx="8" cy="15" r="4" />
+    <path d="M11.5 12.5 20 4" />
+    <path d="M17 4h3v3" />
   </>,
 );

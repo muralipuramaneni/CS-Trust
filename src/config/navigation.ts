@@ -62,7 +62,7 @@ export const teacherNav: NavItem[] = [
   { label: 'Student Attendance', path: '/teacher/attendance', icon: IconClipboard },
   { label: 'Daily Teaching Log', path: '/teacher/teaching-log', icon: IconBook },
   { label: 'Syllabus Progress', path: '/teacher/syllabus', icon: IconBook },
-  { label: 'Leave Request', path: '/teacher/leave', icon: IconCalendar },
+  { label: 'Leave', path: '/teacher/leave', icon: IconCalendar },
   { label: 'Assets', path: '/teacher/assets', icon: IconBox },
   { label: 'Support Tickets', path: '/teacher/tickets', icon: IconTicket },
   { label: 'Event Upload', path: '/teacher/events', icon: IconImage },
