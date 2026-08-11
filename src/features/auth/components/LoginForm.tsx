@@ -29,20 +29,32 @@ interface FormErrors {
 const DEMO_ACCOUNTS = [
   {
     label: 'Admin',
+    role: 'admin',
     email: 'admin@chaitanyasaradhi.org',
     password: 'demo1234',
   },
   {
     label: 'Teacher',
+    role: 'teacher',
     email: 'teacher@chaitanyasaradhi.org',
     password: 'demo1234',
   },
   {
     label: 'Sponsor',
+    role: 'sponsor',
     email: 'sponsor@chaitanyasaradhi.org',
     password: 'demo1234',
   },
 ] as const;
+
+type DemoRole = (typeof DEMO_ACCOUNTS)[number]['role'];
+
+function isAdminLoginContext(role: DemoRole | null, email: string) {
+  if (role === 'admin') return true;
+  if (role === 'teacher' || role === 'sponsor') return false;
+  const e = email.trim().toLowerCase();
+  return e.includes('admin@') || e.startsWith('superadmin') || e.includes('superadmin@');
+}
 
 export function LoginForm() {
   const navigate = useNavigate();
@@ -51,10 +63,12 @@ export function LoginForm() {
 
   const [email, setEmail] = useState('admin@chaitanyasaradhi.org');
   const [password, setPassword] = useState('demo1234');
+  const [selectedRole, setSelectedRole] = useState<DemoRole | null>('admin');
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
+  const showAdminPasswordHelp = isAdminLoginContext(selectedRole, email);
 
   function validate(): FormErrors {
     const next: FormErrors = {};
@@ -115,7 +129,10 @@ export function LoginForm() {
           hasError={Boolean(errors.email)}
           disabled={isSubmitting}
           className="rounded-lg border-slate-200 bg-slate-50"
-          onChange={(event) => setEmail(event.target.value)}
+          onChange={(event) => {
+            setEmail(event.target.value);
+            setSelectedRole(null);
+          }}
         />
       </FormField>
 
@@ -133,11 +150,23 @@ export function LoginForm() {
       </FormField>
 
       <AuthActionsRow>
-        <AuthTextLink to="/forgot-password">Forgot password? Ask admin</AuthTextLink>
+        {showAdminPasswordHelp ? (
+          <p className="text-sm leading-snug text-slate-500 dark:text-slate-400">
+            Please contact tech support to reset admin password. Ph:{' '}
+            <a
+              href="tel:7671095380"
+              className="font-medium text-sky-600 hover:text-sky-700 hover:underline dark:text-sky-400 dark:hover:text-sky-300"
+            >
+              7671095380
+            </a>
+          </p>
+        ) : (
+          <AuthTextLink to="/forgot-password">Forgot password? Ask admin</AuthTextLink>
+        )}
       </AuthActionsRow>
 
       <Button type="submit" variant="primary" fullWidth disabled={isSubmitting} className={authPrimaryButtonClass}>
-        {isSubmitting ? <InlineLoader>Signing in…</InlineLoader> : 'Continue to dashboard'}
+        {isSubmitting ? <InlineLoader>Signing in…</InlineLoader> : 'Sign in'}
       </Button>
 
       <AuthHelperCard
@@ -160,6 +189,7 @@ export function LoginForm() {
               onClick={() => {
                 setEmail(account.email);
                 setPassword(account.password);
+                setSelectedRole(account.role);
                 setErrors({});
               }}
             >

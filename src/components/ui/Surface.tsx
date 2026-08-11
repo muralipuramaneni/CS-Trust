@@ -236,10 +236,44 @@ export function SectionTitle({
 }
 
 export function EmptyHint({ children }: { children: ReactNode }) {
+  return <EmptyState message={typeof children === 'string' ? children : 'No data found'} />;
+}
+
+/** Shared empty section: light logo watermark + message */
+export function EmptyState({
+  message = 'No data found',
+  className,
+  children,
+}: {
+  message?: string;
+  className?: string;
+  children?: ReactNode;
+}) {
   return (
-    <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-400">
-      {children}
-    </p>
+    <div
+      role="status"
+      className={cn(
+        'relative flex min-h-[11rem] w-full flex-col items-center justify-center overflow-hidden px-4 py-10',
+        className,
+      )}
+    >
+      <img
+        src="/images/cs-trust-logo.png"
+        alt=""
+        aria-hidden
+        className={cn(
+          'pointer-events-none absolute left-1/2 top-1/2 z-0',
+          'h-32 w-32 -translate-x-1/2 -translate-y-1/2 select-none object-contain sm:h-40 sm:w-40',
+          /* Fade + lift dark logo plate so emblem reads as light gray watermark */
+          'opacity-10 grayscale brightness-[2.8] contrast-75',
+          'dark:opacity-10 dark:brightness-[2.2]',
+        )}
+      />
+      <p className="relative z-[1] text-sm font-medium tracking-tight text-slate-400 dark:text-slate-500">
+        {message}
+      </p>
+      {children ? <div className="relative z-[1] mt-3">{children}</div> : null}
+    </div>
   );
 }
 
