@@ -5,6 +5,7 @@ import { Link, useParams } from 'react-router-dom';
 import {
   Button,
   ConfirmDialog,
+  CopyableTempPassword,
   FormField,
   Input,
   Modal,
@@ -15,6 +16,7 @@ import {
 import {
   Badge,
   Card,
+  EmptyState,
   PageHeader,
   ProgressBar,
   ProgressRing,
@@ -32,7 +34,7 @@ import {
   leaveDayCount,
   leaveStatusTone,
 } from '../../../utils/leave';
-import { DataTable, Td } from '../../../components/ui/DataTable';
+import { DataTable, DataTableEmpty, Td } from '../../../components/ui/DataTable';
 import {
   IconAlert,
   IconArrowRight,
@@ -929,11 +931,7 @@ export function AdminSchoolsPage() {
           ]}
         >
           {pageSchools.length === 0 ? (
-            <tr>
-              <Td className="py-8 text-center text-slate-500" colSpan={9}>
-                No schools match your search.
-              </Td>
-            </tr>
+            <DataTableEmpty colSpan={9} />
           ) : (
             pageSchools.map((school) => {
               const isDisabled = school.status === 'disabled';
@@ -2017,11 +2015,7 @@ export function AdminTeachersPage() {
           ]}
         >
           {filtered.length === 0 ? (
-            <tr>
-              <Td className="py-8 text-center text-slate-500" colSpan={7}>
-                No teachers match your search.
-              </Td>
-            </tr>
+            <DataTableEmpty colSpan={7} />
           ) : (
             filtered.map((teacher) => (
               <tr key={teacher.id} className={teacher.active ? undefined : 'opacity-75'}>
@@ -2285,10 +2279,17 @@ export function AdminTeachersPage() {
               <dt className="text-slate-500">Email</dt>
               <dd className="font-medium">{createdLogin?.email}</dd>
             </div>
-            <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">Temp password</dt>
-              <dd className="font-mono font-semibold text-emerald-800 dark:text-emerald-300">
-                {createdLogin?.password}
+            <div className="flex items-center justify-between gap-3">
+              <dt className="shrink-0 text-slate-500">Temp password</dt>
+              <dd className="min-w-0">
+                {createdLogin?.password ? (
+                  <CopyableTempPassword
+                    value={createdLogin.password}
+                    textClassName="text-emerald-800 dark:text-emerald-300"
+                  />
+                ) : (
+                  '—'
+                )}
               </dd>
             </div>
           </dl>
@@ -2891,10 +2892,10 @@ export function AdminTeacherDetailsPage() {
                 <dt className="text-slate-500">Email</dt>
                 <dd className="font-medium">{teacher.email}</dd>
               </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-slate-500">Temp password</dt>
-                <dd className="font-mono font-semibold text-sky-700 dark:text-sky-300">
-                  {tempPassword}
+              <div className="flex items-center justify-between gap-3">
+                <dt className="shrink-0 text-slate-500">Temp password</dt>
+                <dd className="min-w-0">
+                  <CopyableTempPassword value={tempPassword} />
                 </dd>
               </div>
             </dl>
@@ -3434,11 +3435,7 @@ export function AdminSponsorsPage() {
             headers={['School', 'Location', 'Assigned sponsor', 'Status', 'Actions']}
           >
             {filteredSchools.length === 0 ? (
-              <tr>
-                <Td className="py-10 text-center text-slate-500" colSpan={5}>
-                  No schools match your search.
-                </Td>
-              </tr>
+              <DataTableEmpty colSpan={5} />
             ) : (
               filteredSchools.map((school) => {
                 const sponsor = school.sponsorId
@@ -3519,11 +3516,7 @@ export function AdminSponsorsPage() {
             ]}
           >
             {filteredSponsors.length === 0 ? (
-              <tr>
-                <Td className="py-10 text-center text-slate-500" colSpan={6}>
-                  No sponsors match your search.
-                </Td>
-              </tr>
+              <DataTableEmpty colSpan={6} />
             ) : (
               filteredSponsors.map((sponsor) => {
                 const linked = schoolList.filter((s) => s.sponsorId === sponsor.id);
@@ -3950,10 +3943,17 @@ export function AdminSponsorsPage() {
               <dt className="text-slate-500">Email</dt>
               <dd className="font-medium">{createdSponsorLogin?.email}</dd>
             </div>
-            <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">Temp password</dt>
-              <dd className="font-mono font-semibold text-emerald-800">
-                {createdSponsorLogin?.password}
+            <div className="flex items-center justify-between gap-3">
+              <dt className="shrink-0 text-slate-500">Temp password</dt>
+              <dd className="min-w-0">
+                {createdSponsorLogin?.password ? (
+                  <CopyableTempPassword
+                    value={createdSponsorLogin.password}
+                    textClassName="text-emerald-800 dark:text-emerald-300"
+                  />
+                ) : (
+                  '—'
+                )}
               </dd>
             </div>
           </dl>
@@ -4626,9 +4626,7 @@ export function AdminTeacherAttendancePage() {
             </div>
 
             {selectedDayRows.length === 0 ? (
-              <p className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
-                No clock-in records for this day.
-              </p>
+              <EmptyState className="mt-2" />
             ) : (
               <ul className="mt-4 space-y-3">
                 {selectedDayRows.map((row) => {
@@ -4712,11 +4710,7 @@ export function AdminTeacherAttendancePage() {
             ]}
           >
             {filtered.length === 0 ? (
-              <tr>
-                <Td className="py-8 text-center text-slate-500" colSpan={6}>
-                  No attendance records match your filters.
-                </Td>
-              </tr>
+              <DataTableEmpty colSpan={6} />
             ) : (
               filtered.map((row) => (
                 <tr key={row.id}>
@@ -5077,21 +5071,12 @@ export function AdminLeavesPage() {
             </div>
           </div>
           {pendingRequests.length === 0 ? (
-            <Card className="py-12 text-center">
-              <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                No pending requests
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                New submissions appear here for review.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                className="mt-4"
-                onClick={() => setPanel('history')}
-              >
-                Open leave history
-              </Button>
+            <Card padding="none">
+              <EmptyState>
+                <Button type="button" variant="outline" onClick={() => setPanel('history')}>
+                  Open leave history
+                </Button>
+              </EmptyState>
             </Card>
           ) : (
             <ul className="grid gap-3">
@@ -5226,11 +5211,7 @@ export function AdminLeavesPage() {
               ]}
             >
               {historyRows.length === 0 ? (
-                <tr>
-                  <Td className="py-10 text-center text-slate-500" colSpan={7}>
-                    No leave history for this teacher.
-                  </Td>
-                </tr>
+                <DataTableEmpty colSpan={7} />
               ) : (
                 historyRows.map((leave) => (
                   <tr key={leave.id}>
@@ -5520,11 +5501,7 @@ export function AdminStudentAttendancePage() {
           ]}
         >
           {filtered.length === 0 ? (
-            <tr>
-              <Td className="py-8 text-center text-slate-500" colSpan={8}>
-                No class attendance matches your filters.
-              </Td>
-            </tr>
+            <DataTableEmpty colSpan={8} />
           ) : (
             filtered.map((row) => {
               const rate = attendanceRate(row.present, row.enrolled);
@@ -5787,11 +5764,7 @@ export function AdminSyllabusPage() {
           ]}
         >
           {filtered.length === 0 ? (
-            <tr>
-              <Td className="py-8 text-center text-slate-500" colSpan={8}>
-                No syllabus rows match your filters.
-              </Td>
-            </tr>
+            <DataTableEmpty colSpan={8} />
           ) : (
             filtered.map((row) => {
               const remaining = Math.max(0, row.topicsTotal - row.topicsDone);
@@ -6023,11 +5996,7 @@ export function AdminAssetsPage() {
           ]}
         >
           {filtered.length === 0 ? (
-            <tr>
-              <Td className="py-8 text-center text-slate-500" colSpan={7}>
-                No assets match your search.
-              </Td>
-            </tr>
+            <DataTableEmpty colSpan={7} />
           ) : (
             filtered.map((asset) => (
               <tr key={asset.id}>
@@ -6230,11 +6199,7 @@ export function AdminTicketsPage() {
           headers={['Ticket', 'Type', 'School', 'Raised by', 'Description', 'Status', 'Date', 'Actions']}
         >
           {filtered.length === 0 ? (
-            <tr>
-              <Td className="py-8 text-center text-slate-500" colSpan={8}>
-                No tickets match your search.
-              </Td>
-            </tr>
+            <DataTableEmpty colSpan={8} />
           ) : (
             filtered.map((ticket) => (
               <tr key={ticket.id}>
@@ -6430,7 +6395,9 @@ export function AdminEventsPage() {
       {loading ? <p className="mb-4 text-center text-sm text-slate-500">Loading events…</p> : null}
       <div className="grid gap-4 sm:grid-cols-2">
         {filtered.length === 0 ? (
-          <p className="text-sm text-slate-500 sm:col-span-2">No events match your search.</p>
+          <div className="sm:col-span-2">
+            <EmptyState />
+          </div>
         ) : (
           filtered.map((event) => (
           <Card key={event.id}>

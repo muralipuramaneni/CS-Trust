@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Badge,
   Card,
+  EmptyState,
   PageHeader,
   ProgressBar,
   SectionTitle,
@@ -227,7 +228,7 @@ export function SponsorSchoolsPage() {
                 <SectionTitle>Asset summary</SectionTitle>
                 <div className="flex flex-wrap gap-2">
                   {schoolAssets.length === 0 ? (
-                    <p className="text-sm text-slate-500">No assets listed.</p>
+                    <EmptyState className="min-h-[8rem] py-6" />
                   ) : (
                     schoolAssets.map((a) => (
                       <Badge key={a.id} tone="neutral">

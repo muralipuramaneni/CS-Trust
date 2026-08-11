@@ -75,7 +75,9 @@ export async function registerUser(payload: SignupPayload): Promise<AuthUser> {
     throw new Error('Enter a valid 10-digit Indian mobile number.');
   }
   if (!isValidPassword(password)) {
-    throw new Error('Password must be at least 8 characters.');
+    throw new Error(
+      'Password must be at least 8 characters and include a special character (!@#$…).',
+    );
   }
 
   const user = await signupApi({ name, email, phone, password });
@@ -88,7 +90,9 @@ export async function changePassword(
 ): Promise<void> {
   if (!currentPassword) throw new Error('Enter your current password.');
   if (!isValidPassword(newPassword)) {
-    throw new Error('New password must be at least 8 characters.');
+    throw new Error(
+      'Password must be at least 8 characters and include a special character (!@#$…).',
+    );
   }
   if (currentPassword === newPassword) {
     throw new Error('New password must be different from the current password.');

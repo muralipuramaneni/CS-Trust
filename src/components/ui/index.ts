@@ -11,3 +11,4 @@ export { Modal } from './Modal';
 export { ConfirmDialog } from './ConfirmDialog';
 export { TableRowActions, IconActionButton, LeaveReviewActions } from './TableRowActions';
 export { TableSearch, matchesSearch } from './TableSearch';
+export { CopyableTempPassword } from './CopyableTempPassword';

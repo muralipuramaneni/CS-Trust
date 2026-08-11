@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { cn } from '../../utils/cn';
+import { EmptyState } from './Surface';
 
 export type DataTableHeader = string | { label: string; className?: string };
 
@@ -76,5 +77,25 @@ export function Td({
     >
       {children}
     </td>
+  );
+}
+
+/** Full-width empty row with logo watermark for DataTable bodies. */
+export function DataTableEmpty({
+  colSpan,
+  message = 'No data found',
+}: {
+  colSpan: number;
+  message?: string;
+}) {
+  return (
+    <tr className="!bg-transparent hover:!bg-transparent">
+      <Td
+        colSpan={colSpan}
+        className="!bg-transparent p-0 hover:!bg-transparent dark:!bg-transparent"
+      >
+        <EmptyState message={message} className="min-h-[10rem] py-12" />
+      </Td>
+    </tr>
   );
 }
