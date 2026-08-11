@@ -87,3 +87,13 @@ desktop.ini
 .tmp/
 *.bak
 *.orig
+
+# Leftover paths from pre-split layout (local only)
+/src/
+/public/
+/index.html
+/vite.config.ts
+/tsconfig.json
+/tsconfig.app.json
+/tsconfig.node.json
+/.oxlintrc.json
