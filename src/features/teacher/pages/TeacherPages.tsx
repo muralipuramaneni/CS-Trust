@@ -677,6 +677,7 @@ export function TeacherClockPage() {
   }, [teacher, schoolId, today]);
 
   async function handleClock(action: 'in' | 'out') {
+    if (busy) return;
     if (!teacher || !schoolId) {
       setMessageTone('error');
       setMessage('Your account is not linked to a school yet. Ask an admin to assign you.');
@@ -691,6 +692,16 @@ export function TeacherClockPage() {
       const ua = navigator.userAgent.slice(0, 80);
 
       if (action === 'in') {
+        if (todayRow && todayRow.clockOut && todayRow.clockOut !== '—' && todayRow.hours !== 'In progress') {
+          setMessageTone('warn');
+          setMessage('You already completed clock-in/out for today.');
+          return;
+        }
+        if (status === 'in') {
+          setMessageTone('warn');
+          setMessage('You are already clocked in.');
+          return;
+        }
         const created = await createTeacherAttendance({
           teacherId: teacher.id,
           teacherName: teacher.name,
@@ -805,7 +816,19 @@ export function TeacherClockPage() {
             type="button"
             variant="primary"
             className="min-h-11 w-full sm:w-auto sm:min-w-[10rem]"
-            disabled={busy || profileLoading || status === 'in' || !teacher || !schoolId}
+            disabled={
+              busy ||
+              profileLoading ||
+              status === 'in' ||
+              !teacher ||
+              !schoolId ||
+              Boolean(
+                todayRow &&
+                  todayRow.clockOut &&
+                  todayRow.clockOut !== '—' &&
+                  todayRow.hours !== 'In progress',
+              )
+            }
             onClick={() => void handleClock('in')}
           >
             {busy && status === 'out' ? 'Clocking in…' : 'Clock In'}
@@ -1353,15 +1376,15 @@ export function TeacherAttendancePage() {
       list
         .filter(
           (s) =>
-            s.classGrade === classGrade &&
+            String(s.classGrade).trim() === classGrade &&
             s.section.trim().toUpperCase() === section.trim().toUpperCase(),
         )
         .sort((a, b) => a.name.localeCompare(b.name)),
     [list, classGrade, section],
   );
 
-  const presentCount = Object.values(marks).filter((m) => m === 'P').length;
-  const absentCount = Object.values(marks).filter((m) => m === 'A').length;
+  const presentCount = classStudents.filter((s) => marks[s.id] === 'P').length;
+  const absentCount = classStudents.filter((s) => marks[s.id] === 'A').length;
   const markedCount = presentCount + absentCount;
   const unmarkedCount = classStudents.filter((s) => !marks[s.id]).length;
   const total = classStudents.length;
@@ -1469,6 +1492,7 @@ export function TeacherAttendancePage() {
   }
 
   async function submitAttendance() {
+    if (busy || submitted) return;
     if (!schoolId || !teacher) {
       setError('Missing school or teacher profile.');
       return;
@@ -1490,7 +1514,7 @@ export function TeacherAttendancePage() {
       const created = await createStudentAttendanceSession({
         schoolId,
         classGrade,
-        section,
+        section: section.trim().toUpperCase(),
         date: today,
         teacherId: teacher.id,
         teacherName: teacher.name,

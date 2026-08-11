@@ -8,6 +8,7 @@ export function ConfirmDialog({
   title = 'Delete record',
   description = 'This action cannot be undone. Are you sure you want to delete this record?',
   confirmLabel = 'Delete',
+  busyLabel,
   confirmVariant = 'destructive',
   onConfirm,
   onClose,
@@ -16,6 +17,7 @@ export function ConfirmDialog({
   title?: string;
   description?: string;
   confirmLabel?: string;
+  busyLabel?: string;
   confirmVariant?: ButtonVariant;
   onConfirm: () => void | Promise<void>;
   onClose: () => void;
@@ -55,7 +57,7 @@ export function ConfirmDialog({
           disabled={busy}
           onClick={() => void handleConfirm()}
         >
-          {busy ? 'Deleting…' : confirmLabel}
+          {busy ? busyLabel || `${confirmLabel}…` : confirmLabel}
         </Button>
       </div>
     </Modal>

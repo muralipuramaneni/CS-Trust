@@ -106,9 +106,31 @@ def create_teacher_attendance(
         data["hours"] = compute_working_hours(data["clock_in"], data["clock_out"])
     elif not data.get("hours"):
         data["hours"] = "In progress"
+
+    existing = (
+        db.query(TeacherAttendance)
+        .filter(
+            TeacherAttendance.teacher_id == data["teacher_id"],
+            TeacherAttendance.date == data["date"],
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Attendance for this teacher on {data['date']} already exists.",
+        )
+
     row = TeacherAttendance(id=next_sequential_id(db, TeacherAttendance, "ta"), **data)
     db.add(row)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f"Attendance for this teacher on {data['date']} already exists.",
+        )
     db.refresh(row)
     return row
 
@@ -181,12 +203,13 @@ def _find_student_session(
     section: str,
     date: str,
 ) -> StudentAttendanceSession | None:
+    section_n = section.strip().upper()
     return (
         db.query(StudentAttendanceSession)
         .filter(
             StudentAttendanceSession.school_id == school_id,
-            StudentAttendanceSession.class_grade == class_grade,
-            StudentAttendanceSession.section == section,
+            StudentAttendanceSession.class_grade == class_grade.strip(),
+            StudentAttendanceSession.section == section_n,
             StudentAttendanceSession.date == date,
         )
         .first()
@@ -237,7 +260,7 @@ def create_student_session(
 
     school_id = data["school_id"]
     class_grade = str(data["class_grade"]).strip()
-    section = str(data["section"]).strip()
+    section = str(data["section"]).strip().upper()
     date = str(data["date"]).strip()
     data["class_grade"] = class_grade
     data["section"] = section

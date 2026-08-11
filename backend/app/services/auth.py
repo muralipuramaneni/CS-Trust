@@ -57,7 +57,29 @@ def authenticate_user(db: Session, email: str, password: str) -> User:
     user = db.query(User).filter(User.email == normalize_email(email)).first()
     if not user or not verify_password(password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
+    _ensure_profile_active(db, user)
     return user
+
+
+def _ensure_profile_active(db: Session, user: User) -> None:
+    if user.role == "teacher":
+        teacher = db.query(Teacher).filter(Teacher.user_id == user.id).first()
+        if not teacher:
+            teacher = db.query(Teacher).filter(Teacher.email == user.email).first()
+        if teacher is not None and not teacher.active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This teacher account is inactive. Contact your administrator.",
+            )
+    elif user.role == "sponsor":
+        sponsor = db.query(Sponsor).filter(Sponsor.user_id == user.id).first()
+        if not sponsor:
+            sponsor = db.query(Sponsor).filter(Sponsor.email == user.email).first()
+        if sponsor is not None and not sponsor.active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This sponsor account is inactive. Contact your administrator.",
+            )
 
 
 def issue_token_for_user(db: Session, user: User) -> dict:
@@ -75,19 +97,19 @@ def change_password(
     new_password: str,
     current_password: str | None = None,
 ) -> None:
+    if not current_password:
+        raise HTTPException(status_code=400, detail="Current password is required.")
     if len(new_password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
-
-    # On forced reset, current password is the temp password and is optional if already authenticated.
-    # Still verify when provided.
-    if current_password:
-        if not verify_password(current_password, user.password_hash):
-            raise HTTPException(status_code=400, detail="Current password is incorrect.")
-    elif not user.must_change_password:
-        raise HTTPException(status_code=400, detail="Current password is required.")
-
-    if current_password and current_password == new_password:
-        raise HTTPException(status_code=400, detail="New password must be different from the temporary password.")
+    if not any(ch for ch in new_password if not ch.isalnum()):
+        raise HTTPException(
+            status_code=400,
+            detail="Password must include at least one special character (!@#$…).",
+        )
+    if not verify_password(current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+    if current_password == new_password:
+        raise HTTPException(status_code=400, detail="New password must be different from the current password.")
     if verify_password(new_password, user.password_hash):
         raise HTTPException(status_code=400, detail="New password must be different from the current password.")
 

@@ -35,6 +35,13 @@ export function clearAccessToken(): void {
   sessionStorage.removeItem(TOKEN_SESSION_KEY);
 }
 
+/** Optional hook for session expiry — AuthProvider registers a redirect/clear handler. */
+let onUnauthorized: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  onUnauthorized = handler;
+}
+
 function extractErrorMessage(detail: unknown, fallback: string): string {
   if (typeof detail === 'string' && detail.trim()) return detail;
   if (Array.isArray(detail) && detail.length > 0) {
@@ -84,6 +91,10 @@ export async function apiRequest<T>(
       data && typeof data === 'object' && 'detail' in data
         ? (data as { detail: unknown }).detail
         : data;
+    if (response.status === 401 && token && !path.includes('/auth/login')) {
+      clearAccessToken();
+      onUnauthorized?.();
+    }
     throw new ApiError(
       extractErrorMessage(detail, `Request failed (${response.status})`),
       response.status,

@@ -173,7 +173,7 @@ export function LoginForm() {
         title={
           <>
             Quick demo access · password{' '}
-            <span className="font-semibold text-slate-700">demo123</span>
+            <span className="font-semibold text-slate-700">demo1234</span>
           </>
         }
       >

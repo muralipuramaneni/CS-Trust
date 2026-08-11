@@ -1675,17 +1675,15 @@ export function AdminSchoolDetailsPage() {
         confirmLabel={isDisabled ? 'Enable' : 'Disable'}
         confirmVariant={isDisabled ? 'primary' : 'destructive'}
         onClose={() => setStatusConfirm(false)}
-        onConfirm={() => {
-          void (async () => {
-            try {
-              const nextStatus = school.status === 'active' ? 'disabled' : 'active';
-              const updated = await updateSchool(school.id, { status: nextStatus });
-              setSchool(updated);
-              setStatusConfirm(false);
-            } catch (err) {
-              window.alert(apiErrorMessage(err, 'Failed to update school status'));
-            }
-          })();
+        onConfirm={async () => {
+          try {
+            const nextStatus = school.status === 'active' ? 'disabled' : 'active';
+            const updated = await updateSchool(school.id, { status: nextStatus });
+            setSchool(updated);
+          } catch (err) {
+            window.alert(apiErrorMessage(err, 'Failed to update school status'));
+            throw err;
+          }
         }}
       />
     </div>
@@ -2964,16 +2962,14 @@ export function AdminTeacherDetailsPage() {
         confirmLabel={teacher.active ? 'Deactivate' : 'Activate'}
         confirmVariant={teacher.active ? 'destructive' : 'primary'}
         onClose={() => setStatusConfirm(false)}
-        onConfirm={() => {
-          void (async () => {
-            try {
-              const updated = await updateTeacher(teacher.id, { active: !teacher.active });
-              setTeacher(updated);
-              setStatusConfirm(false);
-            } catch (err) {
-              window.alert(apiErrorMessage(err, 'Failed to update teacher status'));
-            }
-          })();
+        onConfirm={async () => {
+          try {
+            const updated = await updateTeacher(teacher.id, { active: !teacher.active });
+            setTeacher(updated);
+          } catch (err) {
+            window.alert(apiErrorMessage(err, 'Failed to update teacher status'));
+            throw err;
+          }
         }}
       />
     </div>
@@ -3348,31 +3344,30 @@ export function AdminSponsorsPage() {
     }
   };
 
-  const confirmDeleteSponsor = () => {
+  const confirmDeleteSponsor = async () => {
     if (!deleteSponsorId) return;
     const id = deleteSponsorId;
-    void (async () => {
-      try {
-        await deleteSponsor(id);
-        const linked = schoolList.filter((s) => s.sponsorId === id);
-        await Promise.all(linked.map((s) => updateSchool(s.id, { sponsorId: undefined })));
-        setSchoolList((prev) => {
-          const nextSchools = prev.map((s) =>
-            s.sponsorId === id ? { ...s, sponsorId: undefined } : s,
-          );
-          setSponsorList((prevSponsors) =>
-            rebuildSponsorSchools(
-              nextSchools,
-              prevSponsors.filter((s) => s.id !== id),
-            ),
-          );
-          return nextSchools;
-        });
-        setDeleteSponsorId(null);
-      } catch (err) {
-        window.alert(apiErrorMessage(err, 'Failed to delete sponsor'));
-      }
-    })();
+    try {
+      await deleteSponsor(id);
+      const linked = schoolList.filter((s) => s.sponsorId === id);
+      await Promise.all(linked.map((s) => updateSchool(s.id, { sponsorId: undefined })));
+      setSchoolList((prev) => {
+        const nextSchools = prev.map((s) =>
+          s.sponsorId === id ? { ...s, sponsorId: undefined } : s,
+        );
+        setSponsorList((prevSponsors) =>
+          rebuildSponsorSchools(
+            nextSchools,
+            prevSponsors.filter((s) => s.id !== id),
+          ),
+        );
+        return nextSchools;
+      });
+      setDeleteSponsorId(null);
+    } catch (err) {
+      window.alert(apiErrorMessage(err, 'Failed to delete sponsor'));
+      throw err;
+    }
   };
 
   return (

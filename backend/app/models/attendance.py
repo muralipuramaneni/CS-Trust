@@ -6,6 +6,9 @@ from app.database import Base
 
 class TeacherAttendance(Base):
     __tablename__ = "teacher_attendance"
+    __table_args__ = (
+        UniqueConstraint("teacher_id", "date", name="uq_teacher_attendance_teacher_date"),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     teacher_id: Mapped[str] = mapped_column(String(64), ForeignKey("teachers.id"), nullable=False, index=True)
@@ -46,6 +49,9 @@ class StudentAttendanceSession(Base):
 
 class StudentAttendanceMark(Base):
     __tablename__ = "student_attendance_marks"
+    __table_args__ = (
+        UniqueConstraint("session_id", "student_id", name="uq_student_attendance_mark_session_student"),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     session_id: Mapped[str] = mapped_column(

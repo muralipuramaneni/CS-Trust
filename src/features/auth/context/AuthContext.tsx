@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { AuthUser, LoginCredentials, SignupPayload } from '../../../types/auth';
+import { setUnauthorizedHandler } from '../../../api/client';
 import {
   changePassword as changePasswordService,
   clearSession,
@@ -52,6 +53,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
   }, []);
 
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setUser(null);
+      clearSession();
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
   const login = useCallback(async (credentials: LoginCredentials) => {
     const nextUser = await loginWithPassword(
       credentials.email,
@@ -85,8 +94,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const changePassword = useCallback(
     async (currentPassword: string, newPassword: string) => {
       await changePasswordService(currentPassword, newPassword);
-      const next = await restoreSession();
-      setUser(next);
+      try {
+        const next = await restoreSession();
+        if (next) {
+          setUser(next);
+          return;
+        }
+      } catch {
+        // Password already changed — keep session and clear the force-change flag.
+      }
+      setUser((prev) => (prev ? { ...prev, mustChangePassword: false } : prev));
     },
     [],
   );

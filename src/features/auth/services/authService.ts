@@ -56,7 +56,12 @@ export async function loginWithPassword(
 
   try {
     const user = await loginApi(normalizeEmail(email), password, rememberMe);
-    return sanitizeUser(user)!;
+    const sanitized = sanitizeUser(user);
+    if (!sanitized) {
+      clearAccessToken();
+      throw new Error('Login succeeded but user profile was incomplete. Please try again.');
+    }
+    return sanitized;
   } catch (error) {
     if (error instanceof Error && error.message) throw error;
     throw new Error('Invalid email or password.');

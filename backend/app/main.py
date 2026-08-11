@@ -29,6 +29,7 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    from sqlalchemy import text
     from sqlalchemy.exc import ProgrammingError
 
     try:
@@ -36,6 +37,30 @@ async def lifespan(_: FastAPI):
     except ProgrammingError as exc:
         if "already exists" not in str(exc).lower():
             raise
+
+    # create_all does not alter existing tables — ensure critical indexes/columns.
+    ensure_sql = [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE",
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_teacher_attendance_teacher_date
+        ON teacher_attendance (teacher_id, date)
+        """,
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_student_attendance_school_class_section_date
+        ON student_attendance_sessions (school_id, class_grade, section, date)
+        """,
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_student_attendance_mark_session_student
+        ON student_attendance_marks (session_id, student_id)
+        """,
+    ]
+    with engine.begin() as conn:
+        for stmt in ensure_sql:
+            try:
+                conn.execute(text(stmt))
+            except Exception:
+                # Index may fail if duplicate rows already exist — app still has request-level checks.
+                pass
     yield
 
 

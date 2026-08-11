@@ -50,8 +50,13 @@ def report_summary(
 
 
 @router.get("/export/{report_type}")
-def export_report(report_type: str, format: str = Query("json")):
+def export_report(
+    report_type: str,
+    format: str = Query("json"),
+    user: User = Depends(require_any_auth),
+):
     """PDF/Excel export stubs — return JSON summary or 501 for binary formats."""
+    _ = user
     if format.lower() in {"pdf", "xlsx", "excel"}:
         raise HTTPException(status_code=501, detail=f"{format.upper()} export not implemented yet")
     return {

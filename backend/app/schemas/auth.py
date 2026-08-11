@@ -49,7 +49,7 @@ class SignupRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     model_config = API_MODEL_CONFIG
 
-    current_password: str | None = None
+    current_password: str = Field(min_length=1)
     new_password: str = Field(min_length=8)
 
 
