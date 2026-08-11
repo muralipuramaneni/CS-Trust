@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react';
 import {
   Badge,
   Card,
@@ -8,37 +9,92 @@ import {
 } from '../../../components/ui/Surface';
 import { DataTable, Td } from '../../../components/ui/DataTable';
 import {
-  assets,
-  events,
-  recentActivities,
-  schoolById,
-  schools,
-  studentsBySchool,
-  teachersBySchool,
-  tickets,
-} from '../../../data/mockData';
+  listActivities,
+  listAssets,
+  listEvents,
+  listSchools,
+  listStudents,
+  listSyllabus,
+  listTeacherAttendance,
+  listTeachers,
+  listTickets,
+} from '../../../api';
+import type {
+  ActivityItem,
+  Asset,
+  EventItem,
+  School,
+  Student,
+  SupportTicket,
+  TeacherProfile,
+} from '../../../types/domain';
+import type { SyllabusRow, TeacherAttendanceRow } from '../../../api';
 import { useAuth } from '../../auth/hooks/useAuth';
 import { progressBadgeTone, progressLabel } from '../../../utils/progress';
 
+function apiErrorMessage(e: unknown, fallback: string) {
+  return e instanceof Error ? e.message : fallback;
+}
+
 function useSponsoredSchools() {
   const { user } = useAuth();
-  const ids = user?.schoolIds?.length
-    ? user.schoolIds
-    : schools.filter((s) => s.sponsorId === user?.id || s.sponsorId === 'usr_sponsor_01').map(
-        (s) => s.id,
-      );
-  // Prefer assigned list; fall back to sch_01 + sch_02 from seed
-  const resolved = ids.length ? ids : ['sch_01', 'sch_02'];
-  return schools.filter((s) => resolved.includes(s.id));
+  const [schools, setSchools] = useState<School[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listSchools();
+        if (cancelled) return;
+        const ids = user?.schoolIds?.length
+          ? new Set(user.schoolIds)
+          : new Set(data.filter((s) => s.sponsorId === user?.id).map((s) => s.id));
+        // API already scopes by role for sponsors; still prefer assigned ids when present
+        setSchools(ids.size ? data.filter((s) => ids.has(s.id)) : data);
+      } catch (e) {
+        if (!cancelled) setLoadError(apiErrorMessage(e, 'Failed to load schools'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, user?.schoolIds]);
+
+  return { schools, loading, loadError };
 }
 
 export function SponsorDashboardPage() {
-  const sponsored = useSponsoredSchools();
+  const { schools: sponsored, loading, loadError } = useSponsoredSchools();
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listActivities();
+        if (!cancelled) setActivities(data);
+      } catch {
+        // optional feed
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const totalStudents = sponsored.reduce((sum, s) => sum + s.studentCount, 0);
   const totalTeachers = sponsored.reduce((sum, s) => sum + s.teacherCount, 0);
   const avgSyllabus = Math.round(
     sponsored.reduce((sum, s) => sum + s.syllabusCompletion, 0) / (sponsored.length || 1),
   );
+
+  if (loading) {
+    return <div className="py-16 text-center text-sm text-slate-500">Loading dashboard…</div>;
+  }
 
   return (
     <div>
@@ -47,14 +103,15 @@ export function SponsorDashboardPage() {
         description="View-only insights for schools assigned to your sponsorship."
         readOnly
       />
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard label="Sponsored Schools" value={sponsored.length} />
         <StatCard label="Total Students" value={totalStudents} />
         <StatCard label="Teachers Assigned" value={totalTeachers} />
-        <StatCard label="Today's Attendance" value="91%" hint="Students present (demo)" />
+        <StatCard label="Today's Attendance" value="—" hint="See Attendance page" />
         <StatCard label="Syllabus Progress" value={`${avgSyllabus}%`} />
-        <StatCard label="Recent Activities" value={recentActivities.length} />
+        <StatCard label="Recent Activities" value={activities.length} />
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
@@ -74,7 +131,7 @@ export function SponsorDashboardPage() {
         <Card>
           <SectionTitle>Recent activities</SectionTitle>
           <ul className="space-y-3">
-            {recentActivities.map((item) => (
+            {activities.map((item) => (
               <li key={item.id} className="flex items-start justify-between gap-3 text-sm">
                 <span className="text-slate-700">{item.text}</span>
                 <span className="shrink-0 text-xs text-slate-400">{item.time}</span>
@@ -88,7 +145,30 @@ export function SponsorDashboardPage() {
 }
 
 export function SponsorSchoolsPage() {
-  const sponsored = useSponsoredSchools();
+  const { schools: sponsored, loading, loadError } = useSponsoredSchools();
+  const [teachers, setTeachers] = useState<TeacherProfile[]>([]);
+  const [assets, setAssets] = useState<Asset[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [teachersData, assetsData] = await Promise.all([listTeachers(), listAssets()]);
+        if (cancelled) return;
+        setTeachers(teachersData);
+        setAssets(assetsData);
+      } catch {
+        // page still shows school cards
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loading) {
+    return <div className="py-16 text-center text-sm text-slate-500">Loading schools…</div>;
+  }
 
   return (
     <div>
@@ -97,9 +177,10 @@ export function SponsorSchoolsPage() {
         description="School info, teachers, student count and asset summary — view only."
         readOnly
       />
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
       <div className="space-y-4">
         {sponsored.map((school) => {
-          const schoolTeachers = teachersBySchool(school.id);
+          const schoolTeachers = teachers.filter((t) => t.schoolId === school.id);
           const schoolAssets = assets.filter((a) => a.schoolId === school.id);
           return (
             <Card key={school.id}>
@@ -165,9 +246,35 @@ export function SponsorSchoolsPage() {
 }
 
 export function SponsorAttendancePage() {
-  const sponsored = useSponsoredSchools();
+  const { schools: sponsored, loading, loadError } = useSponsoredSchools();
+  const [teacherRows, setTeacherRows] = useState<TeacherAttendanceRow[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
   const school = sponsored[0];
-  const list = school ? studentsBySchool(school.id) : [];
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [attendance, studentList] = await Promise.all([
+          listTeacherAttendance(),
+          school ? listStudents({ schoolId: school.id }) : Promise.resolve([]),
+        ]);
+        if (cancelled) return;
+        const ids = new Set(sponsored.map((s) => s.id));
+        setTeacherRows(attendance.filter((r) => ids.has(r.schoolId)));
+        setStudents(studentList);
+      } catch {
+        // keep empty tables
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sponsored, school]);
+
+  if (loading) {
+    return <div className="py-16 text-center text-sm text-slate-500">Loading attendance…</div>;
+  }
 
   return (
     <div>
@@ -176,39 +283,44 @@ export function SponsorAttendancePage() {
         description="Teacher and student attendance for sponsored schools. No editing rights."
         readOnly
       />
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <SectionTitle>Teacher attendance</SectionTitle>
           <DataTable headers={['Teacher', 'School', 'Status', 'Hours']}>
-            <tr>
-              <Td className="font-medium text-slate-900">Priya Sharma</Td>
-              <Td>{schoolById('sch_01')?.name}</Td>
-              <Td>
-                <Badge tone="success">Present</Badge>
-              </Td>
-              <Td>7h 35m</Td>
-            </tr>
-            <tr>
-              <Td className="font-medium text-slate-900">Ravi Kumar</Td>
-              <Td>{schoolById('sch_02')?.name}</Td>
-              <Td>
-                <Badge tone="success">Present</Badge>
-              </Td>
-              <Td>In progress</Td>
-            </tr>
+            {teacherRows.map((row) => (
+              <tr key={row.id}>
+                <Td className="font-medium text-slate-900">{row.teacherName}</Td>
+                <Td>{row.schoolName}</Td>
+                <Td>
+                  <Badge
+                    tone={
+                      !row.clockOut || row.clockOut === '—' || row.hours === 'In progress'
+                        ? 'warning'
+                        : 'success'
+                    }
+                  >
+                    {!row.clockOut || row.clockOut === '—' || row.hours === 'In progress'
+                      ? 'In progress'
+                      : 'Present'}
+                  </Badge>
+                </Td>
+                <Td>{row.hours}</Td>
+              </tr>
+            ))}
           </DataTable>
         </Card>
         <Card>
-          <SectionTitle>Student attendance · {school?.name ?? 'School'}</SectionTitle>
+          <SectionTitle>Student roster · {school?.name ?? 'School'}</SectionTitle>
           <DataTable headers={['Student', 'Class', 'Status']}>
-            {list.map((student) => (
+            {students.map((student) => (
               <tr key={student.id}>
                 <Td className="font-medium text-slate-900">{student.name}</Td>
                 <Td>
                   {student.classGrade}-{student.section}
                 </Td>
                 <Td>
-                  <Badge tone="success">Present</Badge>
+                  <Badge tone="success">Enrolled</Badge>
                 </Td>
               </tr>
             ))}
@@ -220,7 +332,45 @@ export function SponsorAttendancePage() {
 }
 
 export function SponsorSyllabusPage() {
-  const sponsored = useSponsoredSchools();
+  const { schools: sponsored, loading, loadError } = useSponsoredSchools();
+  const [rows, setRows] = useState<SyllabusRow[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listSyllabus();
+        if (cancelled) return;
+        const ids = new Set(sponsored.map((s) => s.id));
+        setRows(ids.size ? data.filter((r) => ids.has(r.schoolId)) : data);
+      } catch {
+        // fall back to school-level averages below
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sponsored]);
+
+  if (loading) {
+    return <div className="py-16 text-center text-sm text-slate-500">Loading syllabus…</div>;
+  }
+
+  const displayRows =
+    rows.length > 0
+      ? rows
+      : sponsored.map((school) => ({
+          id: school.id,
+          schoolId: school.id,
+          schoolName: school.name,
+          teacherName: '—',
+          classLabel: '6–10',
+          subject: 'Programme',
+          topic: '—',
+          completedPct: school.syllabusCompletion,
+          topicsDone: Math.round(school.syllabusCompletion / 5),
+          topicsTotal: 20,
+        }));
 
   return (
     <div>
@@ -229,23 +379,24 @@ export function SponsorSyllabusPage() {
         description="Class-wise progress, topics completed and remaining — view only."
         readOnly
       />
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
       <Card>
         <DataTable headers={['School', 'Class', 'Completed topics', 'Remaining', 'Progress']}>
-          {sponsored.map((school) => (
-            <tr key={school.id}>
-              <Td className="font-medium text-slate-900">{school.name}</Td>
-              <Td>6–10</Td>
-              <Td>{Math.round(school.syllabusCompletion / 5)}</Td>
-              <Td>{Math.round((100 - school.syllabusCompletion) / 5)}</Td>
+          {displayRows.map((row) => (
+            <tr key={row.id}>
+              <Td className="font-medium text-slate-900">{row.schoolName}</Td>
+              <Td>{row.classLabel}</Td>
+              <Td>{row.topicsDone}</Td>
+              <Td>{Math.max(0, row.topicsTotal - row.topicsDone)}</Td>
               <Td>
                 <div className="min-w-[8rem] space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-slate-800">{school.syllabusCompletion}%</span>
-                    <Badge tone={progressBadgeTone(school.syllabusCompletion)}>
-                      {progressLabel(school.syllabusCompletion)}
+                    <span className="font-semibold text-slate-800">{row.completedPct}%</span>
+                    <Badge tone={progressBadgeTone(row.completedPct)}>
+                      {progressLabel(row.completedPct)}
                     </Badge>
                   </div>
-                  <ProgressBar value={school.syllabusCompletion} />
+                  <ProgressBar value={row.completedPct} />
                 </div>
               </Td>
             </tr>
@@ -257,9 +408,33 @@ export function SponsorSyllabusPage() {
 }
 
 export function SponsorEventsPage() {
-  const sponsored = useSponsoredSchools();
-  const ids = new Set(sponsored.map((s) => s.id));
-  const list = events.filter((e) => ids.has(e.schoolId));
+  const { schools: sponsored, loading, loadError } = useSponsoredSchools();
+  const [list, setList] = useState<EventItem[]>([]);
+  const schoolName = useMemo(
+    () => new Map(sponsored.map((s) => [s.id, s.name])),
+    [sponsored],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listEvents();
+        if (cancelled) return;
+        const ids = new Set(sponsored.map((s) => s.id));
+        setList(ids.size ? data.filter((e) => ids.has(e.schoolId)) : data);
+      } catch {
+        // empty gallery
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sponsored]);
+
+  if (loading) {
+    return <div className="py-16 text-center text-sm text-slate-500">Loading events…</div>;
+  }
 
   return (
     <div>
@@ -268,6 +443,7 @@ export function SponsorEventsPage() {
         description="School events, student activities and photos — view only."
         readOnly
       />
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
       <div className="grid gap-4 sm:grid-cols-2">
         {list.map((event) => (
           <Card key={event.id}>
@@ -277,7 +453,7 @@ export function SponsorEventsPage() {
               <span className="text-xs text-slate-400">{event.date}</span>
             </div>
             <p className="text-xs font-semibold uppercase tracking-wide text-brand-600">
-              {schoolById(event.schoolId)?.name}
+              {schoolName.get(event.schoolId) ?? event.schoolId}
             </p>
             <h3 className="mt-1 font-semibold text-slate-900">{event.name}</h3>
             <p className="mt-2 text-sm text-slate-600">{event.description}</p>
@@ -289,9 +465,29 @@ export function SponsorEventsPage() {
 }
 
 export function SponsorAssetsPage() {
-  const sponsored = useSponsoredSchools();
-  const ids = new Set(sponsored.map((s) => s.id));
-  const list = assets.filter((a) => ids.has(a.schoolId));
+  const { schools: sponsored, loading, loadError } = useSponsoredSchools();
+  const [list, setList] = useState<Asset[]>([]);
+  const schoolName = useMemo(
+    () => new Map(sponsored.map((s) => [s.id, s.name])),
+    [sponsored],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listAssets();
+        if (cancelled) return;
+        const ids = new Set(sponsored.map((s) => s.id));
+        setList(ids.size ? data.filter((a) => ids.has(a.schoolId)) : data);
+      } catch {
+        // empty
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sponsored]);
 
   const types = ['Computer', 'CPU', 'Keyboard', 'Mouse', 'Monitor', 'UPS'] as const;
   const counts = Object.fromEntries(
@@ -301,6 +497,10 @@ export function SponsorAssetsPage() {
     ]),
   ) as Record<(typeof types)[number], number>;
 
+  if (loading) {
+    return <div className="py-16 text-center text-sm text-slate-500">Loading assets…</div>;
+  }
+
   return (
     <div>
       <PageHeader
@@ -308,6 +508,7 @@ export function SponsorAssetsPage() {
         description="Computers, CPU, keyboard, mouse, monitor and UPS for sponsored schools."
         readOnly
       />
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
       <div className="mb-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {types.map((type) => (
           <StatCard key={type} label={type} value={counts[type] || 0} />
@@ -326,7 +527,7 @@ export function SponsorAssetsPage() {
                   {asset.workingStatus}
                 </Badge>
               </Td>
-              <Td>{schoolById(asset.schoolId)?.name}</Td>
+              <Td>{schoolName.get(asset.schoolId) ?? asset.schoolId}</Td>
             </tr>
           ))}
         </DataTable>
@@ -336,13 +537,38 @@ export function SponsorAssetsPage() {
 }
 
 export function SponsorTicketsPage() {
-  const sponsored = useSponsoredSchools();
-  const ids = new Set(sponsored.map((s) => s.id));
-  const list = tickets.filter((t) => ids.has(t.schoolId));
+  const { schools: sponsored, loading, loadError } = useSponsoredSchools();
+  const [list, setList] = useState<SupportTicket[]>([]);
+  const schoolName = useMemo(
+    () => new Map(sponsored.map((s) => [s.id, s.name])),
+    [sponsored],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listTickets();
+        if (cancelled) return;
+        const ids = new Set(sponsored.map((s) => s.id));
+        setList(ids.size ? data.filter((t) => ids.has(t.schoolId)) : data);
+      } catch {
+        // empty
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sponsored]);
+
   const open = list.filter(
     (t) => t.status === 'Open' || t.status === 'Assigned' || t.status === 'In Progress',
   );
   const resolved = list.filter((t) => t.status === 'Resolved' || t.status === 'Closed');
+
+  if (loading) {
+    return <div className="py-16 text-center text-sm text-slate-500">Loading tickets…</div>;
+  }
 
   return (
     <div>
@@ -351,6 +577,7 @@ export function SponsorTicketsPage() {
         description="Open and resolved tickets for sponsored schools — read-only."
         readOnly
       />
+      {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
       <div className="mb-4 grid gap-3 sm:grid-cols-2">
         <StatCard label="Open / In progress" value={open.length} />
         <StatCard label="Resolved / Closed" value={resolved.length} />
@@ -361,7 +588,7 @@ export function SponsorTicketsPage() {
             <tr key={ticket.id}>
               <Td className="font-medium text-slate-900">{ticket.id.toUpperCase()}</Td>
               <Td>{ticket.type}</Td>
-              <Td>{schoolById(ticket.schoolId)?.name}</Td>
+              <Td>{schoolName.get(ticket.schoolId) ?? ticket.schoolId}</Td>
               <Td>
                 <Badge tone="info">{ticket.status}</Badge>
               </Td>

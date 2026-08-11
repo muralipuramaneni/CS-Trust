@@ -8,12 +8,13 @@ import {
 } from 'react';
 import type { AuthUser, LoginCredentials, SignupPayload } from '../../../types/auth';
 import {
+  changePassword as changePasswordService,
   clearSession,
-  ensureSeedUsers,
   loginWithPassword,
+  logoutRemote,
   persistSession,
-  readSession,
   registerUser,
+  restoreSession,
 } from '../services/authService';
 
 interface AuthContextValue {
@@ -23,6 +24,8 @@ interface AuthContextValue {
   login: (credentials: LoginCredentials) => Promise<AuthUser>;
   signup: (payload: SignupPayload) => Promise<AuthUser>;
   logout: () => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  refreshUser: () => Promise<AuthUser | null>;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
@@ -36,13 +39,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    ensureSeedUsers();
-    setUser(readSession());
-    setIsLoading(false);
+    let cancelled = false;
+    (async () => {
+      const next = await restoreSession();
+      if (!cancelled) {
+        setUser(next);
+        setIsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = useCallback(async (credentials: LoginCredentials) => {
-    const nextUser = await loginWithPassword(credentials.email, credentials.password);
+    const nextUser = await loginWithPassword(
+      credentials.email,
+      credentials.password,
+      Boolean(credentials.rememberMe),
+    );
     setUser(nextUser);
     persistSession(nextUser, Boolean(credentials.rememberMe));
     return nextUser;
@@ -57,8 +72,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const logout = useCallback(async () => {
     setUser(null);
+    await logoutRemote();
     clearSession();
   }, []);
+
+  const refreshUser = useCallback(async () => {
+    const next = await restoreSession();
+    setUser(next);
+    return next;
+  }, []);
+
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string) => {
+      await changePasswordService(currentPassword, newPassword);
+      const next = await restoreSession();
+      setUser(next);
+    },
+    [],
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -68,8 +99,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       login,
       signup,
       logout,
+      changePassword,
+      refreshUser,
     }),
-    [user, isLoading, login, signup, logout],
+    [user, isLoading, login, signup, logout, changePassword, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

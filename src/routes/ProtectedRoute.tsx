@@ -8,5 +8,6 @@ export function HomeRedirect() {
   const { isAuthenticated, isLoading, user } = useAuth();
   if (isLoading) return <LoadingScreen />;
   if (!isAuthenticated || !user) return <Navigate to="/login" replace />;
+  if (user.mustChangePassword) return <Navigate to="/change-password" replace />;
   return <Navigate to={roleHomePath(user.role)} replace />;
 }

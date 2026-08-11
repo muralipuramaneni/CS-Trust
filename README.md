@@ -1,53 +1,77 @@
 # CS Trust
 
-Frontend for **Chaitanya Saradhi Trust**.
+Monorepo for **Chaitanya Saradhi Trust**: React frontend + FastAPI backend.
+
+## Structure
+
+```
+├── src/                 # Frontend (React + Vite)
+├── backend/             # FastAPI + PostgreSQL API
+├── package.json
+└── README.md
+```
 
 ## Stack
 
-- React 19 + TypeScript
-- Vite
-- React Router
-- Tailwind CSS v4
+**Frontend:** React 19, TypeScript, Vite, React Router, Tailwind CSS v4  
+**Backend:** FastAPI, SQLAlchemy, PostgreSQL (Supabase or Docker)
 
-## Getting started
+## Prerequisites
+
+1. Node.js 20+
+2. Python 3.11+
+3. PostgreSQL (Docker Compose in `backend/` or Supabase)
+
+## Backend
+
+```bash
+cd backend
+python -m venv .venv
+.\.venv\Scripts\activate          # Windows
+# source .venv/bin/activate       # macOS/Linux
+pip install -r requirements.txt
+copy .env.example .env            # then set DATABASE_URL / SECRET_KEY
+uvicorn app.main:app --reload --port 8000
+```
+
+API docs: http://127.0.0.1:8000/docs
+
+## Frontend
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open the app at the local URL Vite prints (default `http://localhost:5173`).
+Open http://localhost:5173. Vite proxies `/api` → `http://127.0.0.1:8000`.
 
-## Auth (Phase 1 — frontend only)
+Optional: set `VITE_API_BASE_URL` in `.env` (default `/api/v1`). See `.env.example`.
+
+## Auth
 
 | Route | Feature |
 |-------|---------|
-| `/login` | Email + password sign in |
-| `/signup` | Create account (name, email, phone, password) |
-| `/forgot-password` | Phone OTP → reset password |
-
-No backend yet — users and sessions are stored in browser `localStorage`.
+| `/login` | Email + password (JWT) |
+| `/change-password` | Required after admin-issued temp password |
+| `/forgot-password` | Contact admin to reset |
 
 ### Demo credentials
 
-Password for all demo accounts: **`demo123`**
+Password for seed accounts: **`demo1234`**
 
-| Role | Email | Phone |
-|------|-------|-------|
-| Super Admin | superadmin@chaitanyasaradhi.org | 9876543210 |
-| Admin | admin@chaitanyasaradhi.org | 9876543211 |
-| User | user@chaitanyasaradhi.org | 9876543212 |
+| Role | Email |
+|------|-------|
+| Admin | admin@chaitanyasaradhi.org |
+| Teacher | teacher@chaitanyasaradhi.org |
+| Sponsor | sponsor@chaitanyasaradhi.org |
 
-**Demo OTP (forgot password):** `123456`
-
-## Project structure
+## Project structure (frontend)
 
 ```
 src/
-  components/ui + layout
-  features/auth/
-  pages/
-  routes/
+  api/           # HTTP client + resource helpers
+  components/    # UI + layout
+  features/      # auth, admin, teacher, sponsor
   types/
   utils/
 ```

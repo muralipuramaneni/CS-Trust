@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Button } from './Button';
 import type { ButtonVariant } from './Button';
 import { Modal } from './Modal';
@@ -16,24 +17,45 @@ export function ConfirmDialog({
   description?: string;
   confirmLabel?: string;
   confirmVariant?: ButtonVariant;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   onClose: () => void;
 }) {
+  const [busy, setBusy] = useState(false);
+
+  async function handleConfirm() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await onConfirm();
+      onClose();
+    } catch {
+      // Parent handlers should surface errors; keep dialog open on failure.
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <Modal open={open} onClose={onClose} title={title} description={description} className="max-w-md">
+    <Modal
+      open={open}
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      title={title}
+      description={description}
+      className="max-w-md"
+    >
       <div className="flex flex-wrap justify-end gap-2 px-5 py-4">
-        <Button type="button" variant="ghost" onClick={onClose}>
+        <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
           Cancel
         </Button>
         <Button
           type="button"
           variant={confirmVariant}
-          onClick={() => {
-            onConfirm();
-            onClose();
-          }}
+          disabled={busy}
+          onClick={() => void handleConfirm()}
         >
-          {confirmLabel}
+          {busy ? 'Deleting…' : confirmLabel}
         </Button>
       </div>
     </Modal>

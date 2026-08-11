@@ -9,6 +9,9 @@ export function LoginPage() {
   const { isAuthenticated, isLoading, user } = useAuth();
 
   if (isLoading) return <LoadingScreen />;
+  if (isAuthenticated && user?.mustChangePassword) {
+    return <Navigate to="/change-password" replace />;
+  }
   if (isAuthenticated && user) return <Navigate to={roleHomePath(user.role)} replace />;
 
   return (

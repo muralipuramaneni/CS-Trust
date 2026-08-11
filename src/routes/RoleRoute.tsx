@@ -16,6 +16,9 @@ export function RoleRoute({ allow, children }: RoleRouteProps) {
 
   if (isLoading) return <LoadingScreen />;
   if (!isAuthenticated || !user) return <Navigate to="/login" replace />;
+  if (user.mustChangePassword) {
+    return <Navigate to="/change-password" replace />;
+  }
   if (!allow.includes(user.role)) {
     return <Navigate to={roleHomePath(user.role)} replace />;
   }
