@@ -17,10 +17,9 @@ venv/
 ENV/
 env/
 
-# Environment & secrets
+# Environment & secrets (never commit)
 .env
 .env.*
-!.env.example
 *.pem
 secrets/
 credentials.json
@@ -49,6 +48,7 @@ media/
 .idea/
 .DS_Store
 Thumbs.db
+desktop.ini
 *~
 
 # Misc
@@ -56,5 +56,7 @@ Thumbs.db
 logs/
 .tmp/
 .temp/
+*.bak
+*.orig
 openapi.tmp.json
 .python-version
