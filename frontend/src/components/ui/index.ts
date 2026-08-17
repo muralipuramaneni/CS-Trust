@@ -11,4 +11,12 @@ export { Modal } from './Modal';
 export { ConfirmDialog } from './ConfirmDialog';
 export { TableRowActions, IconActionButton, LeaveReviewActions } from './TableRowActions';
 export { TableSearch, matchesSearch } from './TableSearch';
+export { TablePagination } from './TablePagination';
 export { CopyableTempPassword } from './CopyableTempPassword';
+export {
+  MonthCalendar,
+  CalendarLegendItem,
+  CALENDAR_WEEKDAYS,
+  type CalendarDayMeta,
+  type CalendarDayTone,
+} from './MonthCalendar';

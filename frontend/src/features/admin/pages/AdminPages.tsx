@@ -11,8 +11,12 @@ import {
   Modal,
   TableRowActions,
   TableSearch,
+  TablePagination,
+  MonthCalendar,
+  CalendarLegendItem,
   matchesSearch,
 } from '../../../components/ui';
+import { useTablePagination } from '../../../hooks/useTablePagination';
 import {
   Badge,
   Card,
@@ -42,7 +46,6 @@ import {
   IconBox,
   IconCalendar,
   IconCheck,
-  IconChevronLeft,
   IconChevronRight,
   IconClipboard,
   IconClock,
@@ -694,14 +697,11 @@ function schoolToForm(school: School) {
   };
 }
 
-const SCHOOLS_PAGE_SIZE = 10;
-
 export function AdminSchoolsPage() {
   const [schoolList, setSchoolList] = useState<School[]>([]);
   const [sponsorOptions, setSponsorOptions] = useState<SponsorProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -745,20 +745,7 @@ export function AdminSchoolsPage() {
     ),
   );
 
-  const totalPages = Math.max(1, Math.ceil(filteredSchools.length / SCHOOLS_PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const pageStart = (safePage - 1) * SCHOOLS_PAGE_SIZE;
-  const pageSchools = filteredSchools.slice(pageStart, pageStart + SCHOOLS_PAGE_SIZE);
-  const rangeFrom = filteredSchools.length === 0 ? 0 : pageStart + 1;
-  const rangeTo = Math.min(pageStart + SCHOOLS_PAGE_SIZE, filteredSchools.length);
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [search]);
+  const schoolsPagination = useTablePagination(filteredSchools, { resetDeps: [search] });
 
   const resetSponsorSection = () => {
     setSponsorOpen(false);
@@ -882,7 +869,7 @@ export function AdminSchoolsPage() {
           sponsorId,
         });
         setSchoolList((prev) => [next, ...prev]);
-        setPage(1);
+        schoolsPagination.setPage(1);
       }
       closeModal();
     } catch (err) {
@@ -930,10 +917,10 @@ export function AdminSchoolsPage() {
             { label: 'Actions', className: 'text-right' },
           ]}
         >
-          {pageSchools.length === 0 ? (
+          {schoolsPagination.pageItems.length === 0 ? (
             <DataTableEmpty colSpan={9} />
           ) : (
-            pageSchools.map((school) => {
+            schoolsPagination.pageItems.map((school) => {
               const isDisabled = school.status === 'disabled';
               return (
                 <tr
@@ -975,42 +962,15 @@ export function AdminSchoolsPage() {
           )}
         </DataTable>
 
-        <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800">
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Showing{' '}
-            <span className="font-medium text-slate-700 dark:text-slate-200">
-              {rangeFrom}–{rangeTo}
-            </span>{' '}
-            of{' '}
-            <span className="font-medium text-slate-700 dark:text-slate-200">
-              {filteredSchools.length}
-            </span>{' '}
-            schools
-          </p>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              disabled={safePage <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              aria-label="Previous page"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 disabled:pointer-events-none disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-            >
-              <IconChevronLeft className="h-5 w-5" />
-            </button>
-            <span className="min-w-[4.5rem] text-center text-xs font-medium text-slate-600 dark:text-slate-300">
-              Page {safePage} of {totalPages}
-            </span>
-            <button
-              type="button"
-              disabled={safePage >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              aria-label="Next page"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 disabled:pointer-events-none disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-            >
-              <IconChevronRight className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
+        <TablePagination
+          totalCount={schoolsPagination.totalCount}
+          page={schoolsPagination.page}
+          totalPages={schoolsPagination.totalPages}
+          rangeFrom={schoolsPagination.rangeFrom}
+          rangeTo={schoolsPagination.rangeTo}
+          onPageChange={schoolsPagination.setPage}
+          label="schools"
+        />
       </Card>
       )}
 
@@ -1825,6 +1785,8 @@ export function AdminTeachersPage() {
     ),
   );
 
+  const teachersPagination = useTablePagination(filtered, { resetDeps: [search] });
+
   const resetTeacherForm = () => {
     setForm({
       ...emptyTeacherForm,
@@ -2015,7 +1977,7 @@ export function AdminTeachersPage() {
           {filtered.length === 0 ? (
             <DataTableEmpty colSpan={7} />
           ) : (
-            filtered.map((teacher) => (
+            teachersPagination.pageItems.map((teacher) => (
               <tr key={teacher.id} className={teacher.active ? undefined : 'opacity-75'}>
                 <Td>
                   <Link
@@ -2051,6 +2013,15 @@ export function AdminTeachersPage() {
             ))
           )}
         </DataTable>
+        <TablePagination
+          totalCount={teachersPagination.totalCount}
+          page={teachersPagination.page}
+          totalPages={teachersPagination.totalPages}
+          rangeFrom={teachersPagination.rangeFrom}
+          rangeTo={teachersPagination.rangeTo}
+          onPageChange={teachersPagination.setPage}
+          label="teachers"
+        />
       </Card>
       )}
 
@@ -3073,6 +3044,9 @@ export function AdminSponsorsPage() {
     );
   });
 
+  const sponsorSchoolsPagination = useTablePagination(filteredSchools, { resetDeps: [search] });
+  const sponsorsPagination = useTablePagination(filteredSponsors, { resetDeps: [search] });
+
   const openAssign = (school: School) => {
     setAssigning(school);
     setSelectedSponsorId(school.sponsorId ?? '');
@@ -3432,7 +3406,7 @@ export function AdminSponsorsPage() {
             {filteredSchools.length === 0 ? (
               <DataTableEmpty colSpan={5} />
             ) : (
-              filteredSchools.map((school) => {
+              sponsorSchoolsPagination.pageItems.map((school) => {
                 const sponsor = school.sponsorId
                   ? sponsorList.find((s) => s.id === school.sponsorId)
                   : undefined;
@@ -3487,6 +3461,15 @@ export function AdminSponsorsPage() {
               })
             )}
           </DataTable>
+          <TablePagination
+            totalCount={sponsorSchoolsPagination.totalCount}
+            page={sponsorSchoolsPagination.page}
+            totalPages={sponsorSchoolsPagination.totalPages}
+            rangeFrom={sponsorSchoolsPagination.rangeFrom}
+            rangeTo={sponsorSchoolsPagination.rangeTo}
+            onPageChange={sponsorSchoolsPagination.setPage}
+            label="schools"
+          />
         </Card>
       </section>
 
@@ -3513,7 +3496,7 @@ export function AdminSponsorsPage() {
             {filteredSponsors.length === 0 ? (
               <DataTableEmpty colSpan={6} />
             ) : (
-              filteredSponsors.map((sponsor) => {
+              sponsorsPagination.pageItems.map((sponsor) => {
                 const linked = schoolList.filter((s) => s.sponsorId === sponsor.id);
                 return (
                   <tr key={sponsor.id}>
@@ -3572,6 +3555,15 @@ export function AdminSponsorsPage() {
               })
             )}
           </DataTable>
+          <TablePagination
+            totalCount={sponsorsPagination.totalCount}
+            page={sponsorsPagination.page}
+            totalPages={sponsorsPagination.totalPages}
+            rangeFrom={sponsorsPagination.rangeFrom}
+            rangeTo={sponsorsPagination.rangeTo}
+            onPageChange={sponsorsPagination.setPage}
+            label="sponsors"
+          />
         </Card>
       </section>
 
@@ -4011,14 +4003,6 @@ function attendanceDayStatus(rows: AttendanceRow[]): 'complete' | 'partial' | 'n
   return incomplete ? 'partial' : 'complete';
 }
 
-function pad2(n: number) {
-  return String(n).padStart(2, '0');
-}
-
-function formatDateKey(year: number, month: number, day: number) {
-  return `${year}-${pad2(month + 1)}-${pad2(day)}`;
-}
-
 function AttendanceHoursCell({
   hours,
   inLocation,
@@ -4163,8 +4147,6 @@ function AttendanceHoursCell({
   );
 }
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
-
 function TeacherAttendanceCalendar({
   monthDate,
   onMonthChange,
@@ -4178,177 +4160,31 @@ function TeacherAttendanceCalendar({
   onSelectDate: (dateKey: string) => void;
   rowsByDate: Map<string, AttendanceRow[]>;
 }) {
-  const year = monthDate.getFullYear();
-  const month = monthDate.getMonth();
-  const todayKey = formatDateKey(
-    new Date().getFullYear(),
-    new Date().getMonth(),
-    new Date().getDate(),
-  );
-  const monthLabel = new Intl.DateTimeFormat('en-IN', {
-    month: 'long',
-    year: 'numeric',
-  }).format(monthDate);
-
-  const firstWeekday = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const cells: Array<{ key: string; day: number } | null> = [];
-  for (let i = 0; i < firstWeekday; i += 1) cells.push(null);
-  for (let day = 1; day <= daysInMonth; day += 1) {
-    cells.push({ key: formatDateKey(year, month, day), day });
-  }
-  while (cells.length % 7 !== 0) cells.push(null);
-
-  const shiftMonth = (delta: number) => {
-    onMonthChange(new Date(year, month + delta, 1));
-  };
-
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200/90 bg-white dark:border-slate-700 dark:bg-slate-900/60">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 via-white to-sky-50/60 px-4 py-3 dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-sky-950/30">
-        <div className="flex items-center gap-2">
-          <span className="grid h-9 w-9 place-items-center rounded-lg bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
-            <IconCalendar className="h-4 w-4" />
-          </span>
-          <div>
-            <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">{monthLabel}</p>
-            <p className="text-[0.7rem] text-slate-500">Monthly attendance map</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => shiftMonth(-1)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-            aria-label="Previous month"
-          >
-            <IconChevronLeft className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const now = new Date();
-              onMonthChange(new Date(now.getFullYear(), now.getMonth(), 1));
-              onSelectDate(
-                formatDateKey(now.getFullYear(), now.getMonth(), now.getDate()),
-              );
-            }}
-            className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-          >
-            Today
-          </button>
-          <button
-            type="button"
-            onClick={() => shiftMonth(1)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-            aria-label="Next month"
-          >
-            <IconChevronRight className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-900/80">
-        {WEEKDAYS.map((d) => (
-          <div
-            key={d}
-            className="px-1 py-2 text-center text-[0.65rem] font-semibold uppercase tracking-wider text-slate-500"
-          >
-            {d}
-          </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-7 auto-rows-fr">
-        {cells.map((cell, idx) => {
-          if (!cell) {
-            return (
-              <div
-                key={`empty-${idx}`}
-                className="min-h-[4.25rem] border-b border-r border-slate-100 bg-slate-50/40 dark:border-slate-800 dark:bg-slate-950/30"
-              />
-            );
-          }
-          const dayRows = rowsByDate.get(cell.key) ?? [];
-          const status = attendanceDayStatus(dayRows);
-          const isSelected = cell.key === selectedDate;
-          const isToday = cell.key === todayKey;
-          const isWeekend = idx % 7 === 0 || idx % 7 === 6;
-
-          return (
-            <button
-              key={cell.key}
-              type="button"
-              onClick={() => onSelectDate(cell.key)}
-              className={[
-                'group relative flex min-h-[4.25rem] flex-col items-start gap-1 border-b border-r border-slate-100 p-1.5 text-left transition sm:p-2 dark:border-slate-800',
-                isWeekend ? 'bg-slate-50/50 dark:bg-slate-950/20' : 'bg-white dark:bg-slate-900/40',
-                isSelected
-                  ? 'z-[1] bg-sky-50 ring-2 ring-inset ring-sky-400 dark:bg-sky-500/10 dark:ring-sky-500'
-                  : 'hover:bg-sky-50/70 dark:hover:bg-sky-500/5',
-              ].join(' ')}
-            >
-              <span className="flex w-full items-center justify-between gap-1">
-                <span
-                  className={[
-                    'inline-flex h-7 min-w-7 items-center justify-center rounded-full text-xs font-semibold',
-                    isToday
-                      ? 'bg-brand-500 text-white shadow-sm'
-                      : isSelected
-                        ? 'bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-200'
-                        : 'text-slate-700 group-hover:text-slate-900 dark:text-slate-200',
-                  ].join(' ')}
-                >
-                  {cell.day}
-                </span>
-                {dayRows.length > 0 ? (
-                  <span className="hidden text-[0.62rem] font-semibold text-slate-400 sm:inline">
-                    {dayRows.length}
-                  </span>
-                ) : null}
-              </span>
-              {status !== 'none' ? (
-                <span className="mt-auto flex w-full flex-wrap items-center gap-1">
-                  <span
-                    className={[
-                      'h-1.5 w-1.5 rounded-full sm:h-2 sm:w-2',
-                      status === 'complete'
-                        ? 'bg-emerald-500'
-                        : 'bg-amber-500',
-                    ].join(' ')}
-                  />
-                  <span
-                    className={[
-                      'hidden truncate text-[0.62rem] font-medium sm:inline',
-                      status === 'complete'
-                        ? 'text-emerald-700 dark:text-emerald-400'
-                        : 'text-amber-700 dark:text-amber-400',
-                    ].join(' ')}
-                  >
-                    {status === 'complete' ? 'Complete' : 'Open'}
-                  </span>
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-4 border-t border-slate-100 px-4 py-3 dark:border-slate-800">
-        <span className="inline-flex items-center gap-1.5 text-[0.7rem] text-slate-500">
-          <span className="h-2 w-2 rounded-full bg-emerald-500" />
-          Complete day
-        </span>
-        <span className="inline-flex items-center gap-1.5 text-[0.7rem] text-slate-500">
-          <span className="h-2 w-2 rounded-full bg-amber-500" />
-          In progress
-        </span>
-        <span className="inline-flex items-center gap-1.5 text-[0.7rem] text-slate-500">
-          <span className="h-2 w-2 rounded-full bg-brand-500" />
-          Today
-        </span>
-      </div>
-    </div>
+    <MonthCalendar
+      monthDate={monthDate}
+      onMonthChange={onMonthChange}
+      selectedDate={selectedDate}
+      onSelectDate={onSelectDate}
+      subtitle="Monthly attendance map"
+      getDayMeta={(dateKey) => {
+        const dayRows = rowsByDate.get(dateKey) ?? [];
+        const status = attendanceDayStatus(dayRows);
+        if (status === 'none') return dayRows.length ? { count: dayRows.length } : null;
+        return {
+          tone: status === 'complete' ? 'success' : 'warning',
+          label: status === 'complete' ? 'Complete' : 'Open',
+          count: dayRows.length,
+        };
+      }}
+      legend={
+        <>
+          <CalendarLegendItem tone="success" label="Complete day" />
+          <CalendarLegendItem tone="warning" label="In progress" />
+          <CalendarLegendItem tone="brand" label="Today" />
+        </>
+      }
+    />
   );
 }
 
@@ -4408,6 +4244,10 @@ export function AdminTeacherAttendancePage() {
       row.outLocation,
       row.hours,
     );
+  });
+
+  const attendancePagination = useTablePagination(filtered, {
+    resetDeps: [search, schoolFilter, teacherFilter, selectedDate, view],
   });
 
   const calendarFiltered = list.filter((row) => {
@@ -4707,7 +4547,7 @@ export function AdminTeacherAttendancePage() {
             {filtered.length === 0 ? (
               <DataTableEmpty colSpan={6} />
             ) : (
-              filtered.map((row) => (
+              attendancePagination.pageItems.map((row) => (
                 <tr key={row.id}>
                   <Td className="font-medium text-slate-900 dark:text-slate-100">
                     {row.teacher}
@@ -4740,6 +4580,15 @@ export function AdminTeacherAttendancePage() {
               ))
             )}
           </DataTable>
+          <TablePagination
+            totalCount={attendancePagination.totalCount}
+            page={attendancePagination.page}
+            totalPages={attendancePagination.totalPages}
+            rangeFrom={attendancePagination.rangeFrom}
+            rangeTo={attendancePagination.rangeTo}
+            onPageChange={attendancePagination.setPage}
+            label="records"
+          />
         </Card>
       )}
 
@@ -4876,6 +4725,9 @@ export function AdminLeavesPage() {
   const stats = useMemo(() => computeLeaveStats(teacherLeaves), [teacherLeaves]);
   const pendingRequests = teacherLeaves.filter((l) => l.status === 'Pending');
   const historyRows = teacherLeaves;
+  const leaveHistoryPagination = useTablePagination(historyRows, {
+    resetDeps: [teacherId, panel],
+  });
 
   const openEdit = (leave: LeaveRequest) => {
     setEditing(leave);
@@ -5208,7 +5060,7 @@ export function AdminLeavesPage() {
               {historyRows.length === 0 ? (
                 <DataTableEmpty colSpan={7} />
               ) : (
-                historyRows.map((leave) => (
+                leaveHistoryPagination.pageItems.map((leave) => (
                   <tr key={leave.id}>
                     <Td className="font-medium text-slate-900 dark:text-slate-100">
                       {leave.type}
@@ -5234,6 +5086,15 @@ export function AdminLeavesPage() {
                 ))
               )}
             </DataTable>
+            <TablePagination
+              totalCount={leaveHistoryPagination.totalCount}
+              page={leaveHistoryPagination.page}
+              totalPages={leaveHistoryPagination.totalPages}
+              rangeFrom={leaveHistoryPagination.rangeFrom}
+              rangeTo={leaveHistoryPagination.rangeTo}
+              onPageChange={leaveHistoryPagination.setPage}
+              label="requests"
+            />
           </Card>
         </section>
       ) : null}
@@ -5388,6 +5249,10 @@ export function AdminStudentAttendancePage() {
     return matchesSearch(search, row.school, row.classLabel, row.teacher);
   });
 
+  const studentAttendancePagination = useTablePagination(filtered, {
+    resetDeps: [search, schoolFilter, date],
+  });
+
   const totals = filtered.reduce(
     (acc, row) => {
       acc.enrolled += row.enrolled;
@@ -5498,7 +5363,7 @@ export function AdminStudentAttendancePage() {
           {filtered.length === 0 ? (
             <DataTableEmpty colSpan={8} />
           ) : (
-            filtered.map((row) => {
+            studentAttendancePagination.pageItems.map((row) => {
               const rate = attendanceRate(row.present, row.enrolled);
               const health = attendanceHealth(rate);
               return (
@@ -5518,6 +5383,15 @@ export function AdminStudentAttendancePage() {
             })
           )}
         </DataTable>
+        <TablePagination
+          totalCount={studentAttendancePagination.totalCount}
+          page={studentAttendancePagination.page}
+          totalPages={studentAttendancePagination.totalPages}
+          rangeFrom={studentAttendancePagination.rangeFrom}
+          rangeTo={studentAttendancePagination.rangeTo}
+          onPageChange={studentAttendancePagination.setPage}
+          label="classes"
+        />
       </Card>
     </AdminShell>
   );
@@ -5595,6 +5469,10 @@ export function AdminSyllabusPage() {
       row.subject,
       row.topic,
     );
+  });
+
+  const syllabusPagination = useTablePagination(filtered, {
+    resetDeps: [search, schoolFilter],
   });
 
   const classCount = filtered.length;
@@ -5761,7 +5639,7 @@ export function AdminSyllabusPage() {
           {filtered.length === 0 ? (
             <DataTableEmpty colSpan={8} />
           ) : (
-            filtered.map((row) => {
+            syllabusPagination.pageItems.map((row) => {
               const remaining = Math.max(0, row.topicsTotal - row.topicsDone);
               return (
                 <tr key={row.id}>
@@ -5805,6 +5683,15 @@ export function AdminSyllabusPage() {
             })
           )}
         </DataTable>
+        <TablePagination
+          totalCount={syllabusPagination.totalCount}
+          page={syllabusPagination.page}
+          totalPages={syllabusPagination.totalPages}
+          rangeFrom={syllabusPagination.rangeFrom}
+          rangeTo={syllabusPagination.rangeTo}
+          onPageChange={syllabusPagination.setPage}
+          label="classes"
+        />
       </Card>
 
       <Modal
@@ -5925,6 +5812,8 @@ export function AdminAssetsPage() {
     ),
   );
 
+  const assetsPagination = useTablePagination(filtered, { resetDeps: [search] });
+
   const openEdit = (asset: Asset) => {
     setEditing(asset);
     setForm({
@@ -5993,7 +5882,7 @@ export function AdminAssetsPage() {
           {filtered.length === 0 ? (
             <DataTableEmpty colSpan={7} />
           ) : (
-            filtered.map((asset) => (
+            assetsPagination.pageItems.map((asset) => (
               <tr key={asset.id}>
                 <Td className="font-medium text-slate-900 dark:text-slate-100">{asset.type}</Td>
                 <Td>{asset.quantity}</Td>
@@ -6023,6 +5912,15 @@ export function AdminAssetsPage() {
             ))
           )}
         </DataTable>
+        <TablePagination
+          totalCount={assetsPagination.totalCount}
+          page={assetsPagination.page}
+          totalPages={assetsPagination.totalPages}
+          rangeFrom={assetsPagination.rangeFrom}
+          rangeTo={assetsPagination.rangeTo}
+          onPageChange={assetsPagination.setPage}
+          label="assets"
+        />
       </Card>
 
       <Modal
@@ -6148,6 +6046,8 @@ export function AdminTicketsPage() {
     ),
   );
 
+  const ticketsPagination = useTablePagination(filtered, { resetDeps: [search] });
+
   const openEdit = (ticket: SupportTicket) => {
     setEditing(ticket);
     setForm({ description: ticket.description, status: ticket.status });
@@ -6196,7 +6096,7 @@ export function AdminTicketsPage() {
           {filtered.length === 0 ? (
             <DataTableEmpty colSpan={8} />
           ) : (
-            filtered.map((ticket) => (
+            ticketsPagination.pageItems.map((ticket) => (
               <tr key={ticket.id}>
                 <Td className="font-medium text-slate-900 dark:text-slate-100">
                   {ticket.id.toUpperCase()}
@@ -6229,6 +6129,15 @@ export function AdminTicketsPage() {
             ))
           )}
         </DataTable>
+        <TablePagination
+          totalCount={ticketsPagination.totalCount}
+          page={ticketsPagination.page}
+          totalPages={ticketsPagination.totalPages}
+          rangeFrom={ticketsPagination.rangeFrom}
+          rangeTo={ticketsPagination.rangeTo}
+          onPageChange={ticketsPagination.setPage}
+          label="tickets"
+        />
       </Card>
 
       <Modal

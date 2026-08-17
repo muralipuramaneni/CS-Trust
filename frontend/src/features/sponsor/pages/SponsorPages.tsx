@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { TablePagination } from '../../../components/ui';
+import { useTablePagination } from '../../../hooks/useTablePagination';
 import {
   Badge,
   Card,
@@ -68,6 +70,33 @@ function useSponsoredSchools() {
   return { schools, loading, loadError };
 }
 
+function SchoolTeachersTable({ teachers }: { teachers: TeacherProfile[] }) {
+  const pagination = useTablePagination(teachers);
+
+  return (
+    <>
+      <DataTable headers={['Name', 'Classes', 'Email']}>
+        {pagination.pageItems.map((t) => (
+          <tr key={t.id}>
+            <Td className="font-medium text-slate-900">{t.name}</Td>
+            <Td>{t.assignedClasses.join(', ')}</Td>
+            <Td>{t.email}</Td>
+          </tr>
+        ))}
+      </DataTable>
+      <TablePagination
+        totalCount={pagination.totalCount}
+        page={pagination.page}
+        totalPages={pagination.totalPages}
+        rangeFrom={pagination.rangeFrom}
+        rangeTo={pagination.rangeTo}
+        onPageChange={pagination.setPage}
+        label="teachers"
+      />
+    </>
+  );
+}
+
 export function SponsorDashboardPage() {
   const { schools: sponsored, loading, loadError } = useSponsoredSchools();
   const [activities, setActivities] = useState<ActivityItem[]>([]);
@@ -92,6 +121,7 @@ export function SponsorDashboardPage() {
   const avgSyllabus = Math.round(
     sponsored.reduce((sum, s) => sum + s.syllabusCompletion, 0) / (sponsored.length || 1),
   );
+  const schoolsPagination = useTablePagination(sponsored);
 
   if (loading) {
     return <div className="py-16 text-center text-sm text-slate-500">Loading dashboard…</div>;
@@ -116,10 +146,12 @@ export function SponsorDashboardPage() {
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <Card>
-          <SectionTitle>Sponsored schools</SectionTitle>
+        <Card padding="none" className="overflow-hidden">
+          <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+            <SectionTitle className="!mb-0">Sponsored schools</SectionTitle>
+          </div>
           <DataTable headers={['School', 'District', 'Students', 'Syllabus']}>
-            {sponsored.map((school) => (
+            {schoolsPagination.pageItems.map((school) => (
               <tr key={school.id}>
                 <Td className="font-medium text-slate-900">{school.name}</Td>
                 <Td>{school.district}</Td>
@@ -128,6 +160,15 @@ export function SponsorDashboardPage() {
               </tr>
             ))}
           </DataTable>
+          <TablePagination
+            totalCount={schoolsPagination.totalCount}
+            page={schoolsPagination.page}
+            totalPages={schoolsPagination.totalPages}
+            rangeFrom={schoolsPagination.rangeFrom}
+            rangeTo={schoolsPagination.rangeTo}
+            onPageChange={schoolsPagination.setPage}
+            label="schools"
+          />
         </Card>
         <Card>
           <SectionTitle>Recent activities</SectionTitle>
@@ -214,15 +255,7 @@ export function SponsorSchoolsPage() {
               </div>
               <div className="mt-4">
                 <SectionTitle>Teachers</SectionTitle>
-                <DataTable headers={['Name', 'Classes', 'Email']}>
-                  {schoolTeachers.map((t) => (
-                    <tr key={t.id}>
-                      <Td className="font-medium text-slate-900">{t.name}</Td>
-                      <Td>{t.assignedClasses.join(', ')}</Td>
-                      <Td>{t.email}</Td>
-                    </tr>
-                  ))}
-                </DataTable>
+                <SchoolTeachersTable teachers={schoolTeachers} />
               </div>
               <div className="mt-4">
                 <SectionTitle>Asset summary</SectionTitle>
@@ -273,6 +306,9 @@ export function SponsorAttendancePage() {
     };
   }, [sponsored, school]);
 
+  const teacherAttendancePagination = useTablePagination(teacherRows);
+  const studentRosterPagination = useTablePagination(students);
+
   if (loading) {
     return <div className="py-16 text-center text-sm text-slate-500">Loading attendance…</div>;
   }
@@ -286,10 +322,12 @@ export function SponsorAttendancePage() {
       />
       {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <SectionTitle>Teacher attendance</SectionTitle>
+        <Card padding="none" className="overflow-hidden">
+          <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+            <SectionTitle className="!mb-0">Teacher attendance</SectionTitle>
+          </div>
           <DataTable headers={['Teacher', 'School', 'Status', 'Hours']}>
-            {teacherRows.map((row) => (
+            {teacherAttendancePagination.pageItems.map((row) => (
               <tr key={row.id}>
                 <Td className="font-medium text-slate-900">{row.teacherName}</Td>
                 <Td>{row.schoolName}</Td>
@@ -310,11 +348,22 @@ export function SponsorAttendancePage() {
               </tr>
             ))}
           </DataTable>
+          <TablePagination
+            totalCount={teacherAttendancePagination.totalCount}
+            page={teacherAttendancePagination.page}
+            totalPages={teacherAttendancePagination.totalPages}
+            rangeFrom={teacherAttendancePagination.rangeFrom}
+            rangeTo={teacherAttendancePagination.rangeTo}
+            onPageChange={teacherAttendancePagination.setPage}
+            label="records"
+          />
         </Card>
-        <Card>
-          <SectionTitle>Student roster · {school?.name ?? 'School'}</SectionTitle>
+        <Card padding="none" className="overflow-hidden">
+          <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+            <SectionTitle className="!mb-0">Student roster · {school?.name ?? 'School'}</SectionTitle>
+          </div>
           <DataTable headers={['Student', 'Class', 'Status']}>
-            {students.map((student) => (
+            {studentRosterPagination.pageItems.map((student) => (
               <tr key={student.id}>
                 <Td className="font-medium text-slate-900">{student.name}</Td>
                 <Td>
@@ -326,6 +375,15 @@ export function SponsorAttendancePage() {
               </tr>
             ))}
           </DataTable>
+          <TablePagination
+            totalCount={studentRosterPagination.totalCount}
+            page={studentRosterPagination.page}
+            totalPages={studentRosterPagination.totalPages}
+            rangeFrom={studentRosterPagination.rangeFrom}
+            rangeTo={studentRosterPagination.rangeTo}
+            onPageChange={studentRosterPagination.setPage}
+            label="students"
+          />
         </Card>
       </div>
     </div>
@@ -353,25 +411,29 @@ export function SponsorSyllabusPage() {
     };
   }, [sponsored]);
 
+  const displayRows = useMemo(
+    () =>
+      rows.length > 0
+        ? rows
+        : sponsored.map((school) => ({
+            id: school.id,
+            schoolId: school.id,
+            schoolName: school.name,
+            teacherName: '—',
+            classLabel: '6–10',
+            subject: 'Programme',
+            topic: '—',
+            completedPct: school.syllabusCompletion,
+            topicsDone: Math.round(school.syllabusCompletion / 5),
+            topicsTotal: 20,
+          })),
+    [rows, sponsored],
+  );
+  const syllabusPagination = useTablePagination(displayRows);
+
   if (loading) {
     return <div className="py-16 text-center text-sm text-slate-500">Loading syllabus…</div>;
   }
-
-  const displayRows =
-    rows.length > 0
-      ? rows
-      : sponsored.map((school) => ({
-          id: school.id,
-          schoolId: school.id,
-          schoolName: school.name,
-          teacherName: '—',
-          classLabel: '6–10',
-          subject: 'Programme',
-          topic: '—',
-          completedPct: school.syllabusCompletion,
-          topicsDone: Math.round(school.syllabusCompletion / 5),
-          topicsTotal: 20,
-        }));
 
   return (
     <div>
@@ -381,9 +443,9 @@ export function SponsorSyllabusPage() {
         readOnly
       />
       {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
-      <Card>
+      <Card padding="none" className="overflow-hidden">
         <DataTable headers={['School', 'Class', 'Completed topics', 'Remaining', 'Progress']}>
-          {displayRows.map((row) => (
+          {syllabusPagination.pageItems.map((row) => (
             <tr key={row.id}>
               <Td className="font-medium text-slate-900">{row.schoolName}</Td>
               <Td>{row.classLabel}</Td>
@@ -403,6 +465,15 @@ export function SponsorSyllabusPage() {
             </tr>
           ))}
         </DataTable>
+        <TablePagination
+          totalCount={syllabusPagination.totalCount}
+          page={syllabusPagination.page}
+          totalPages={syllabusPagination.totalPages}
+          rangeFrom={syllabusPagination.rangeFrom}
+          rangeTo={syllabusPagination.rangeTo}
+          onPageChange={syllabusPagination.setPage}
+          label="classes"
+        />
       </Card>
     </div>
   );
@@ -498,6 +569,8 @@ export function SponsorAssetsPage() {
     ]),
   ) as Record<(typeof types)[number], number>;
 
+  const assetsPagination = useTablePagination(list);
+
   if (loading) {
     return <div className="py-16 text-center text-sm text-slate-500">Loading assets…</div>;
   }
@@ -515,9 +588,9 @@ export function SponsorAssetsPage() {
           <StatCard key={type} label={type} value={counts[type] || 0} />
         ))}
       </div>
-      <Card>
+      <Card padding="none" className="overflow-hidden">
         <DataTable headers={['Type', 'Quantity', 'Status', 'School']}>
-          {list.map((asset) => (
+          {assetsPagination.pageItems.map((asset) => (
             <tr key={asset.id}>
               <Td className="font-medium text-slate-900">{asset.type}</Td>
               <Td>{asset.quantity}</Td>
@@ -532,6 +605,15 @@ export function SponsorAssetsPage() {
             </tr>
           ))}
         </DataTable>
+        <TablePagination
+          totalCount={assetsPagination.totalCount}
+          page={assetsPagination.page}
+          totalPages={assetsPagination.totalPages}
+          rangeFrom={assetsPagination.rangeFrom}
+          rangeTo={assetsPagination.rangeTo}
+          onPageChange={assetsPagination.setPage}
+          label="assets"
+        />
       </Card>
     </div>
   );
@@ -566,6 +648,7 @@ export function SponsorTicketsPage() {
     (t) => t.status === 'Open' || t.status === 'Assigned' || t.status === 'In Progress',
   );
   const resolved = list.filter((t) => t.status === 'Resolved' || t.status === 'Closed');
+  const ticketsPagination = useTablePagination(list);
 
   if (loading) {
     return <div className="py-16 text-center text-sm text-slate-500">Loading tickets…</div>;
@@ -583,9 +666,9 @@ export function SponsorTicketsPage() {
         <StatCard label="Open / In progress" value={open.length} />
         <StatCard label="Resolved / Closed" value={resolved.length} />
       </div>
-      <Card>
+      <Card padding="none" className="overflow-hidden">
         <DataTable headers={['Ticket', 'Type', 'School', 'Status', 'Description']}>
-          {list.map((ticket) => (
+          {ticketsPagination.pageItems.map((ticket) => (
             <tr key={ticket.id}>
               <Td className="font-medium text-slate-900">{ticket.id.toUpperCase()}</Td>
               <Td>{ticket.type}</Td>
@@ -597,6 +680,15 @@ export function SponsorTicketsPage() {
             </tr>
           ))}
         </DataTable>
+        <TablePagination
+          totalCount={ticketsPagination.totalCount}
+          page={ticketsPagination.page}
+          totalPages={ticketsPagination.totalPages}
+          rangeFrom={ticketsPagination.rangeFrom}
+          rangeTo={ticketsPagination.rangeTo}
+          onPageChange={ticketsPagination.setPage}
+          label="tickets"
+        />
       </Card>
     </div>
   );

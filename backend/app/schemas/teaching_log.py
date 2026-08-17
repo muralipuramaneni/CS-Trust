@@ -12,6 +12,7 @@ class TeachingLogBase(BaseModel):
     school_id: str
     class_grade: str
     section: str
+    period: int = 0
     subject: str
     topic: str
     duration_minutes: int = 0
@@ -30,6 +31,7 @@ class TeachingLogUpdate(BaseModel):
     school_id: str | None = None
     class_grade: str | None = None
     section: str | None = None
+    period: int | None = None
     subject: str | None = None
     topic: str | None = None
     duration_minutes: int | None = None

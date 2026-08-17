@@ -14,6 +14,7 @@ router = APIRouter(prefix="/teaching-logs", tags=["teaching-logs"])
 def list_logs(
     school_id: str | None = Query(None, alias="schoolId"),
     teacher_id: str | None = Query(None, alias="teacherId"),
+    date: str | None = Query(None),
     db: Session = Depends(get_db),
     user: User = Depends(require_any_auth),
 ):
@@ -29,7 +30,9 @@ def list_logs(
         q = q.filter(TeachingLog.school_id == school_id)
     if teacher_id:
         q = q.filter(TeachingLog.teacher_id == teacher_id)
-    return q.order_by(TeachingLog.date.desc()).all()
+    if date:
+        q = q.filter(TeachingLog.date == date)
+    return q.order_by(TeachingLog.date.desc(), TeachingLog.period.asc()).all()
 
 
 @router.get("/{log_id}", response_model=TeachingLogOut)
