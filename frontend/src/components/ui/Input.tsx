@@ -7,13 +7,17 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { hasError = false, className = '', id, ...props },
+  { hasError = false, className = '', id, type, ...props },
   ref,
 ) {
+  const isDateLike =
+    type === 'date' || type === 'datetime-local' || type === 'month' || type === 'week';
+
   return (
     <input
       ref={ref}
       id={id}
+      type={type}
       className={cn(
         'h-11 w-full rounded-lg border bg-white px-3.5 text-[0.9rem] text-ink transition-all duration-200',
         'placeholder:text-slate-400',
@@ -25,6 +29,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         hasError
           ? 'border-danger bg-danger-soft/40 focus:border-danger focus:ring-danger/15 dark:bg-red-950/40'
           : 'border-slate-200',
+        isDateLike && 'cs-date-input',
         className,
       )}
       {...props}

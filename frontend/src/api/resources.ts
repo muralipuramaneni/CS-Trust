@@ -63,6 +63,7 @@ export interface TeachingLog {
   schoolId: string;
   classGrade: string;
   section: string;
+  period?: number;
   subject: string;
   topic: string;
   durationMinutes: number;
@@ -300,6 +301,9 @@ export const listTeachingLogs = (params?: { teacherId?: string; date?: string })
 
 export const createTeachingLog = (body: Partial<TeachingLog>) =>
   apiPost<TeachingLog>('/teaching-logs', body);
+
+export const updateTeachingLog = (id: string, body: Partial<TeachingLog>) =>
+  apiPatch<TeachingLog>(`/teaching-logs/${id}`, body);
 
 export const listAssets = (params?: { schoolId?: string }) =>
   apiGet<Asset[]>(withQuery('/assets', params));

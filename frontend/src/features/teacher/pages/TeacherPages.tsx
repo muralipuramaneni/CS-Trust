@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Button, Input, FormField, Modal, TableSearch } from '../../../components/ui';
+import { Button, Input, FormField, Modal, TableSearch, TablePagination, IconActionButton } from '../../../components/ui';
+import { useTablePagination } from '../../../hooks/useTablePagination';
 import {
   Badge,
   Card,
   EmptyState,
   PageHeader,
   ProgressBar,
+  ProgressRing,
   SectionTitle,
   StatCard,
 } from '../../../components/ui/Surface';
@@ -24,7 +26,10 @@ import {
   IconSchool,
   IconSpark,
   IconTicket,
+  IconTrash,
+  IconUserPlus,
   IconUsers,
+  IconX,
 } from '../../../components/ui/icons';
 import {
   createLeave,
@@ -33,21 +38,28 @@ import {
   createSyllabus,
   createTeacherAttendance,
   createTeachingLog,
+  updateTeachingLog,
   createTicket,
   createEvent,
   getMyTeacherProfile,
   getSchool,
   listAssets,
+  listEvents,
   listLeaves,
   listStudents,
   listStudentAttendanceSessions,
+  listSyllabus,
+  listTeachingLogs,
   listTickets,
   listTeacherAttendance,
   updateTeacherAttendance,
+  type SyllabusRow,
   type TeacherAttendanceRow,
+  type TeachingLog,
 } from '../../../api';
 import type {
   Asset,
+  EventItem,
   LeaveRequest,
   School,
   Student,
@@ -68,6 +80,21 @@ import {
 } from '../../../utils/geo';
 import { localDateKey } from '../../../utils/date';
 import { progressBadgeTone, progressLabel } from '../../../utils/progress';
+import { mergeAttendanceStudents } from '../../../data/demoAttendanceStudents';
+import {
+  generateTopicDescription,
+  generateSyllabusSuggestion,
+  generateEventCopy,
+  suggestEventNames,
+  suggestSyllabusTopics,
+  EVENT_TYPE_OPTIONS,
+  TEACHING_DURATION_PRESETS,
+  TEACHING_PERIODS,
+  TEACHING_SUBJECT_OPTIONS,
+  type EventAssistTone,
+  type EventAudience,
+  type TeachingAssistTone,
+} from '../../../utils/teachingAssist';
 
 function apiErrorMessage(e: unknown, fallback: string) {
   return e instanceof Error ? e.message : fallback;
@@ -950,6 +977,8 @@ export function TeacherStudentsPage() {
     };
   }, [schoolId]);
 
+  const studentsPagination = useTablePagination(list);
+
   function openAdd() {
     setForm({
       name: '',
@@ -1063,19 +1092,20 @@ export function TeacherStudentsPage() {
             </Button>
           </EmptyState>
         ) : (
-          <DataTable
-            headers={[
-              'Student ID',
-              'Name',
-              'Gender',
-              'Class',
-              'Section',
-              'Parent',
-              'Phone',
-              'Status',
-            ]}
-          >
-            {list.map((student) => (
+          <>
+            <DataTable
+              headers={[
+                'Student ID',
+                'Name',
+                'Gender',
+                'Class',
+                'Section',
+                'Parent',
+                'Phone',
+                'Status',
+              ]}
+            >
+              {studentsPagination.pageItems.map((student) => (
               <tr key={student.id}>
                 <Td>{student.studentId}</Td>
                 <Td className="font-medium text-slate-900 dark:text-slate-100">{student.name}</Td>
@@ -1092,6 +1122,16 @@ export function TeacherStudentsPage() {
               </tr>
             ))}
           </DataTable>
+          <TablePagination
+            totalCount={studentsPagination.totalCount}
+            page={studentsPagination.page}
+            totalPages={studentsPagination.totalPages}
+            rangeFrom={studentsPagination.rangeFrom}
+            rangeTo={studentsPagination.rangeTo}
+            onPageChange={studentsPagination.setPage}
+            label="students"
+          />
+          </>
         )}
       </Card>
 
@@ -1283,7 +1323,6 @@ export function TeacherAttendancePage() {
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState(false);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<'all' | 'unmarked' | 'P' | 'A'>('all');
   const [listLoading, setListLoading] = useState(true);
   const today = localDateKey();
 
@@ -1293,9 +1332,18 @@ export function TeacherAttendancePage() {
       setListLoading(true);
       try {
         const data = await listStudents(schoolId ? { schoolId } : undefined);
-        if (!cancelled) setList(data.filter((s) => s.status === 'active'));
+        if (!cancelled) {
+          setList(mergeAttendanceStudents(data, schoolId));
+        }
       } catch (e) {
-        if (!cancelled) setError(apiErrorMessage(e, 'Failed to load students'));
+        if (!cancelled) {
+          const fallback = mergeAttendanceStudents([], schoolId);
+          if (fallback.length) {
+            setList(fallback);
+          } else {
+            setError(apiErrorMessage(e, 'Failed to load students'));
+          }
+        }
       } finally {
         if (!cancelled) setListLoading(false);
       }
@@ -1392,17 +1440,11 @@ export function TeacherAttendancePage() {
 
   const visibleStudents = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return classStudents.filter((s) => {
-      if (q && !s.name.toLowerCase().includes(q) && !s.studentId.toLowerCase().includes(q)) {
-        return false;
-      }
-      const m = marks[s.id];
-      if (filter === 'unmarked') return !m;
-      if (filter === 'P') return m === 'P';
-      if (filter === 'A') return m === 'A';
-      return true;
-    });
-  }, [classStudents, search, filter, marks]);
+    if (!q) return classStudents;
+    return classStudents.filter(
+      (s) => s.name.toLowerCase().includes(q) || s.studentId.toLowerCase().includes(q),
+    );
+  }, [classStudents, search]);
 
   async function loadExistingSession(nextClass: string, nextSection: string) {
     if (!schoolId || !nextClass) return;
@@ -1446,7 +1488,6 @@ export function TeacherAttendancePage() {
   function selectClass(grade: string) {
     setClassGrade(grade);
     setSearch('');
-    setFilter('all');
     const sections = cohorts
       .filter((c) => c.classGrade === grade)
       .map((c) => c.section)
@@ -1457,7 +1498,6 @@ export function TeacherAttendancePage() {
   function selectSection(sec: string) {
     setSection(sec);
     setSearch('');
-    setFilter('all');
   }
 
   function markStudent(id: string, status: 'P' | 'A') {
@@ -1472,7 +1512,6 @@ export function TeacherAttendancePage() {
     for (const s of classStudents) next[s.id] = status;
     setMarks(next);
     setError(null);
-    setFilter('all');
   }
 
   function markUnmarked(status: 'P' | 'A') {
@@ -1503,7 +1542,6 @@ export function TeacherAttendancePage() {
     }
     if (unmarkedCount > 0) {
       setError(`Mark all students first (${unmarkedCount} remaining).`);
-      setFilter('unmarked');
       return;
     }
 
@@ -1539,11 +1577,6 @@ export function TeacherAttendancePage() {
       <PageHeader
         title="Student Attendance"
         description={`Mark present / absent for your class, then submit once for ${today}.`}
-        actions={
-          total > 0 ? (
-            <TableSearch value={search} onChange={setSearch} placeholder="Search student…" />
-          ) : null
-        }
       />
 
       {error ? (
@@ -1669,8 +1702,8 @@ export function TeacherAttendancePage() {
       {/* Class roll */}
       <Card padding="none" className="w-full overflow-hidden">
         <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800 sm:px-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
               <h2 className="text-[0.95rem] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
                 Class roll
                 {classGrade && section ? (
@@ -1686,49 +1719,52 @@ export function TeacherAttendancePage() {
             </div>
 
             {total > 0 ? (
-              <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100/80 p-0.5 dark:border-slate-600 dark:bg-slate-800">
-                {(
-                  [
-                    { id: 'all', label: 'All' },
-                    { id: 'unmarked', label: 'Open' },
-                    { id: 'P', label: 'Present' },
-                    { id: 'A', label: 'Absent' },
-                  ] as const
-                ).map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => setFilter(f.id)}
-                    className={[
-                      'inline-flex items-center rounded-md border px-3 py-1.5 text-xs font-semibold transition',
-                      filter === f.id
-                        ? 'border-brand-500 bg-white text-brand-700 shadow-sm dark:border-brand-400 dark:bg-slate-700 dark:text-brand-300'
-                        : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200',
-                    ].join(' ')}
-                  >
-                    {f.label}
-                  </button>
-                ))}
+              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                <TableSearch
+                  value={search}
+                  onChange={setSearch}
+                  placeholder="Search student…"
+                  className="w-full sm:w-52 md:w-56"
+                />
+                {!submitted ? (
+                  <div className="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-900">
+                    <IconActionButton
+                      aria-label="Mark all present"
+                      title="Mark all present"
+                      className="hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/15 dark:hover:text-emerald-300"
+                      onClick={() => markAll('P')}
+                    >
+                      <IconCheck className="h-4 w-4" />
+                    </IconActionButton>
+                    <IconActionButton
+                      aria-label="Fill unmarked present"
+                      title="Fill unmarked present"
+                      className="hover:bg-sky-50 hover:text-sky-700 dark:hover:bg-sky-500/15 dark:hover:text-sky-300"
+                      onClick={() => markUnmarked('P')}
+                    >
+                      <IconUserPlus className="h-4 w-4" />
+                    </IconActionButton>
+                    <IconActionButton
+                      aria-label="Mark all absent"
+                      title="Mark all absent"
+                      className="hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-500/15 dark:hover:text-rose-300"
+                      onClick={() => markAll('A')}
+                    >
+                      <IconX className="h-4 w-4" />
+                    </IconActionButton>
+                    <IconActionButton
+                      aria-label="Clear marks"
+                      title="Clear marks"
+                      className="hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                      onClick={clearMarks}
+                    >
+                      <IconTrash className="h-4 w-4" />
+                    </IconActionButton>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
-
-          {!submitted && total > 0 ? (
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button type="button" variant="primary" onClick={() => markAll('P')}>
-                Mark all present
-              </Button>
-              <Button type="button" variant="outline" onClick={() => markUnmarked('P')}>
-                Fill unmarked present
-              </Button>
-              <Button type="button" variant="outline" onClick={() => markAll('A')}>
-                Mark all absent
-              </Button>
-              <Button type="button" variant="ghost" onClick={clearMarks}>
-                Clear
-              </Button>
-            </div>
-          ) : null}
         </div>
 
         {listLoading || checking ? (
@@ -1891,36 +1927,207 @@ export function TeacherAttendancePage() {
   );
 }
 
+type PeriodDraft = {
+  subject: string;
+  topic: string;
+  duration: string;
+  remarks: string;
+  existingId?: string;
+};
+
+function emptyPeriodDraft(): PeriodDraft {
+  return {
+    subject: 'Computer basics',
+    topic: '',
+    duration: '40',
+    remarks: '',
+  };
+}
+
+function isPresetSubject(value: string) {
+  return TEACHING_SUBJECT_OPTIONS.includes(value as (typeof TEACHING_SUBJECT_OPTIONS)[number]);
+}
+
 export function TeacherTeachingLogPage() {
   const { schoolId, teacher } = useTeacherContext();
+  const today = localDateKey();
+  const [classGrade, setClassGrade] = useState('');
+  const [section, setSection] = useState('');
+  const [periods, setPeriods] = useState<PeriodDraft[]>(() =>
+    TEACHING_PERIODS.map(() => emptyPeriodDraft()),
+  );
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [logs, setLogs] = useState<TeachingLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(true);
+  const [aiBusyPeriod, setAiBusyPeriod] = useState<number | null>(null);
 
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  const classOptions = useMemo(() => {
+    const grades = new Set<string>();
+    for (const raw of teacher?.assignedClasses ?? []) {
+      const match = String(raw).trim().match(/^(\d+)/);
+      if (match) grades.add(match[1]);
+      else if (String(raw).trim()) grades.add(String(raw).trim());
+    }
+    return [...grades].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [teacher?.assignedClasses]);
+
+  const sectionOptions = useMemo(() => {
+    const sections = new Set<string>();
+    for (const raw of teacher?.assignedClasses ?? []) {
+      const match = String(raw).trim().match(/^(\d+)\s*[-–]?\s*([A-Za-z])?$/);
+      if (!match) continue;
+      if (classGrade && match[1] !== classGrade) continue;
+      sections.add((match[2] ?? 'A').toUpperCase());
+    }
+    if (!sections.size) {
+      sections.add('A');
+      sections.add('B');
+    }
+    return [...sections].sort((a, b) => a.localeCompare(b));
+  }, [teacher?.assignedClasses, classGrade]);
+
+  const todayLogs = useMemo(
+    () =>
+      [...logs]
+        .filter((row) => !row.date || row.date === today)
+        .sort((a, b) => (a.period ?? 99) - (b.period ?? 99)),
+    [logs, today],
+  );
+
+  const classLogs = useMemo(
+    () =>
+      todayLogs.filter(
+        (row) =>
+          row.classGrade === classGrade &&
+          row.section.toUpperCase() === section.toUpperCase(),
+      ),
+    [todayLogs, classGrade, section],
+  );
+
+  useEffect(() => {
+    if (!classGrade && classOptions[0]) setClassGrade(classOptions[0]);
+  }, [classOptions, classGrade]);
+
+  useEffect(() => {
+    if (!classGrade || !sectionOptions.length) return;
+    if (!sectionOptions.includes(section)) setSection(sectionOptions[0]);
+  }, [classGrade, section, sectionOptions]);
+
+  useEffect(() => {
+    if (logsLoading) return;
+    const next = TEACHING_PERIODS.map(() => emptyPeriodDraft());
+    for (const row of classLogs) {
+      const index = (row.period ?? 0) - 1;
+      if (index < 0 || index >= next.length) continue;
+      next[index] = {
+        subject: row.subject || 'Computer basics',
+        topic: row.topic || '',
+        duration: String(row.durationMinutes || 40),
+        remarks: row.remarks || '',
+        existingId: row.id,
+      };
+    }
+    setPeriods(next);
+  }, [classGrade, section, classLogs, logsLoading]);
+
+  async function refreshLogs() {
+    if (!teacher?.id) {
+      setLogs([]);
+      setLogsLoading(false);
+      return;
+    }
+    setLogsLoading(true);
+    try {
+      const data = await listTeachingLogs({ teacherId: teacher.id, date: today });
+      setLogs(data);
+    } catch {
+      setLogs([]);
+    } finally {
+      setLogsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshLogs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teacher?.id, today]);
+
+  function updatePeriod(index: number, patch: Partial<PeriodDraft>) {
+    setPeriods((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+    setSaved(false);
+    setError(null);
+  }
+
+  function readyRows() {
+    return periods
+      .map((row, index) => ({ row, period: TEACHING_PERIODS[index] }))
+      .filter(({ row }) => row.topic.trim() && row.subject.trim());
+  }
+
+  function runAiAssist(index: number) {
+    const row = periods[index];
+    if (!row?.topic.trim()) {
+      setError(`Enter a topic for Period ${TEACHING_PERIODS[index]} first.`);
+      return;
+    }
+    setAiBusyPeriod(TEACHING_PERIODS[index]);
+    window.setTimeout(() => {
+      const draft = generateTopicDescription({
+        subject: row.subject,
+        topic: row.topic,
+        classGrade,
+        section,
+        period: TEACHING_PERIODS[index],
+        durationMinutes: Number(row.duration) || 40,
+        tone: 'standard',
+      });
+      updatePeriod(index, { remarks: draft });
+      setAiBusyPeriod(null);
+    }, 220);
+  }
+
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!schoolId || !teacher) {
       setError('Missing school or teacher profile.');
       return;
     }
-    const formEl = e.currentTarget;
-    const form = new FormData(formEl);
+    if (!classGrade || !section) {
+      setError('Select class and section first.');
+      return;
+    }
+    const rows = readyRows();
+    if (!rows.length) {
+      setError('Fill at least one period topic, then save.');
+      return;
+    }
+
     setBusy(true);
     setError(null);
     try {
-      await createTeachingLog({
-        teacherId: teacher.id,
-        schoolId,
-        classGrade: String(form.get('class') ?? '').trim(),
-        section: String(form.get('section') ?? '').trim(),
-        subject: String(form.get('subject') ?? '').trim(),
-        topic: String(form.get('topic') ?? '').trim(),
-        durationMinutes: Number(form.get('duration') ?? 0) || 0,
-        remarks: String(form.get('remarks') ?? '').trim(),
-        date: localDateKey(),
-      });
-      formEl.reset();
+      await Promise.all(
+        rows.map(({ row, period }) => {
+          const body = {
+            teacherId: teacher.id,
+            schoolId,
+            classGrade: classGrade.trim(),
+            section: section.trim().toUpperCase(),
+            period,
+            subject: row.subject.trim(),
+            topic: row.topic.trim(),
+            durationMinutes: Number(row.duration) || 0,
+            remarks: row.remarks.trim(),
+            date: today,
+          };
+          return row.existingId
+            ? updateTeachingLog(row.existingId, body)
+            : createTeachingLog(body);
+        }),
+      );
       setSaved(true);
+      await refreshLogs();
     } catch (err) {
       setError(apiErrorMessage(err, 'Failed to save teaching log'));
     } finally {
@@ -1928,46 +2135,286 @@ export function TeacherTeachingLogPage() {
     }
   }
 
+  const filledCount = readyRows().length;
+  const savedCount = periods.filter((row) => row.existingId).length;
+  const totalMinutes = readyRows().reduce(
+    (sum, { row }) => sum + (Number(row.duration) || 0),
+    0,
+  );
+  const canEdit = Boolean(classGrade && section && schoolId && teacher);
+
   return (
-    <div>
+    <div className="w-full space-y-4 sm:space-y-5">
       <PageHeader
         title="Daily Teaching Log"
-        description="Record class, subject, topic, duration and remarks."
+        description="Select class and section, then fill only the periods you taught today. Empty periods are skipped."
       />
-      <Card className="max-w-xl">
-        <form className="space-y-4" onSubmit={(e) => void handleSubmit(e)}>
-          <div className="grid gap-4 sm:grid-cols-2">
+
+      {error ? (
+        <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800 dark:bg-rose-500/10 dark:text-rose-300">
+          {error}
+        </p>
+      ) : null}
+      {saved ? (
+        <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200">
+          Saved {filledCount} period{filledCount === 1 ? '' : 's'} for Class {classGrade}-{section}.
+        </p>
+      ) : null}
+
+      <div className="grid w-full gap-3 grid-cols-1 sm:grid-cols-3">
+        <StatCard
+          label="Periods filled"
+          value={logsLoading ? '…' : `${filledCount}/8`}
+          hint="Ready to save"
+          accent="brand"
+          icon={<IconBook className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Already saved"
+          value={logsLoading ? '…' : savedCount}
+          hint={`Class ${classGrade || '—'}–${section || '—'}`}
+          accent="emerald"
+          icon={<IconCheck className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Teaching time"
+          value={logsLoading ? '…' : `${totalMinutes}m`}
+          hint="From filled periods"
+          accent="sky"
+          icon={<IconClock className="h-4 w-4" />}
+        />
+      </div>
+
+      <form className="space-y-4" onSubmit={(e) => void handleSubmit(e)}>
+        <Card padding="lg">
+          <div className="mb-4">
+            <p className="text-[0.95rem] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+              Who did you teach?
+            </p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Choose class and section once. The period sheet below is for this group today.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
             <FormField id="log-class" label="Class" required>
-              <Input id="log-class" name="class" required placeholder="7" />
+              <select
+                id="log-class"
+                className="field-control w-full"
+                value={classGrade}
+                onChange={(e) => {
+                  setClassGrade(e.target.value);
+                  setSection('');
+                  setSaved(false);
+                  setError(null);
+                }}
+                required
+              >
+                <option value="">Select class</option>
+                {classOptions.map((grade) => (
+                  <option key={grade} value={grade}>
+                    Class {grade}
+                  </option>
+                ))}
+              </select>
             </FormField>
             <FormField id="log-section" label="Section" required>
-              <Input id="log-section" name="section" required placeholder="A" />
+              <select
+                id="log-section"
+                className="field-control w-full"
+                value={section}
+                disabled={!classGrade}
+                onChange={(e) => {
+                  setSection(e.target.value);
+                  setSaved(false);
+                  setError(null);
+                }}
+                required
+              >
+                <option value="">Select section</option>
+                {sectionOptions.map((sec) => (
+                  <option key={sec} value={sec}>
+                    Section {sec}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+            <FormField id="log-date" label="Date">
+              <input type="date" className="field-control w-full" value={today} readOnly />
             </FormField>
           </div>
-          <FormField id="log-subject" label="Subject" required>
-            <Input id="log-subject" name="subject" required placeholder="Computer basics" />
-          </FormField>
-          <FormField id="log-topic" label="Today's topic" required>
-            <Input id="log-topic" name="topic" required placeholder="MS Paint tools" />
-          </FormField>
-          <FormField id="log-duration" label="Duration (minutes)" required>
-            <Input id="log-duration" name="duration" type="number" required placeholder="40" />
-          </FormField>
-          <FormField id="log-remarks" label="Remarks">
-            <textarea
-              id="log-remarks"
-              name="remarks"
-              className="field-control min-h-24 w-full"
-              placeholder="Optional notes"
-            />
-          </FormField>
-          <Button type="submit" variant="primary" disabled={busy}>
-            Submit Log
+        </Card>
+
+        <Card padding="none" className="overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800 sm:px-5">
+            <div>
+              <h2 className="text-[0.95rem] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+                Today’s periods
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {classGrade && section
+                  ? `Class ${classGrade}-${section} · fill subject and topic for each period you took`
+                  : 'Select class and section to start'}
+              </p>
+            </div>
+            <Badge tone={filledCount ? 'brand' : 'neutral'}>
+              {filledCount} of 8 ready
+            </Badge>
+          </div>
+
+          <div className="hidden border-b border-slate-100 bg-slate-50/80 px-4 py-2 text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:border-slate-800 dark:bg-slate-950/40 lg:grid lg:grid-cols-[4.75rem_minmax(10rem,0.9fr)_minmax(12rem,1.2fr)_7.5rem_minmax(12rem,1.1fr)_2.75rem] lg:gap-3 lg:px-5">
+            <span>Period</span>
+            <span>Subject</span>
+            <span>Topic</span>
+            <span>Duration</span>
+            <span>Remarks</span>
+            <span className="sr-only">Assist</span>
+          </div>
+
+          <div className={canEdit ? '' : 'pointer-events-none opacity-55'}>
+            {TEACHING_PERIODS.map((period, index) => {
+              const row = periods[index];
+              const filled = Boolean(row.topic.trim() && row.subject.trim());
+              const customSubject = !isPresetSubject(row.subject) || row.subject === '';
+              return (
+                <div
+                  key={period}
+                  className={[
+                    'border-b border-slate-100 px-4 py-3 last:border-b-0 dark:border-slate-800 sm:px-5',
+                    filled ? 'bg-emerald-50/40 dark:bg-emerald-500/5' : 'bg-white dark:bg-transparent',
+                  ].join(' ')}
+                >
+                  <div className="grid gap-3 lg:grid-cols-[4.75rem_minmax(10rem,0.9fr)_minmax(12rem,1.2fr)_7.5rem_minmax(12rem,1.1fr)_2.75rem] lg:items-start">
+                    <div className="flex items-center justify-between gap-2 lg:flex-col lg:items-start lg:justify-start lg:pt-2">
+                      <span
+                        className={[
+                          'inline-flex h-9 min-w-9 items-center justify-center rounded-lg text-sm font-semibold',
+                          filled
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200'
+                            : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200',
+                        ].join(' ')}
+                      >
+                        {period}
+                      </span>
+                      {row.existingId ? (
+                        <Badge tone="success">Saved</Badge>
+                      ) : filled ? (
+                        <span className="text-[0.65rem] font-semibold uppercase tracking-wide text-slate-400">
+                          New
+                        </span>
+                      ) : (
+                        <span className="text-[0.65rem] font-medium text-slate-400">Skip</span>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-[0.75rem] font-medium text-slate-600 lg:hidden dark:text-slate-300">
+                        Subject
+                      </label>
+                      <select
+                        className="field-control w-full"
+                        value={customSubject ? 'Other' : row.subject}
+                        onChange={(e) =>
+                          updatePeriod(index, {
+                            subject: e.target.value === 'Other' ? '' : e.target.value,
+                          })
+                        }
+                        aria-label={`Period ${period} subject`}
+                      >
+                        {TEACHING_SUBJECT_OPTIONS.map((subject) => (
+                          <option key={subject} value={subject}>
+                            {subject}
+                          </option>
+                        ))}
+                      </select>
+                      {customSubject ? (
+                        <Input
+                          className="mt-2"
+                          value={row.subject}
+                          onChange={(e) => updatePeriod(index, { subject: e.target.value })}
+                          placeholder="Custom subject"
+                          aria-label={`Period ${period} custom subject`}
+                        />
+                      ) : null}
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-[0.75rem] font-medium text-slate-600 lg:hidden dark:text-slate-300">
+                        Topic
+                      </label>
+                      <Input
+                        value={row.topic}
+                        onChange={(e) => updatePeriod(index, { topic: e.target.value })}
+                        placeholder="What you taught"
+                        aria-label={`Period ${period} topic`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-[0.75rem] font-medium text-slate-600 lg:hidden dark:text-slate-300">
+                        Duration
+                      </label>
+                      <select
+                        className="field-control w-full"
+                        value={
+                          TEACHING_DURATION_PRESETS.includes(
+                            Number(row.duration) as (typeof TEACHING_DURATION_PRESETS)[number],
+                          )
+                            ? row.duration
+                            : row.duration
+                        }
+                        onChange={(e) => updatePeriod(index, { duration: e.target.value })}
+                        aria-label={`Period ${period} duration`}
+                      >
+                        {TEACHING_DURATION_PRESETS.map((mins) => (
+                          <option key={mins} value={String(mins)}>
+                            {mins} min
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-[0.75rem] font-medium text-slate-600 lg:hidden dark:text-slate-300">
+                        Remarks
+                      </label>
+                      <Input
+                        value={row.remarks}
+                        onChange={(e) => updatePeriod(index, { remarks: e.target.value })}
+                        placeholder="Optional notes"
+                        aria-label={`Period ${period} remarks`}
+                      />
+                    </div>
+
+                    <div className="flex items-center lg:pt-1">
+                      <button
+                        type="button"
+                        onClick={() => runAiAssist(index)}
+                        disabled={!row.topic.trim() || aiBusyPeriod === period}
+                        title="Draft remarks"
+                        aria-label={`Draft remarks for period ${period}`}
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200 dark:hover:bg-sky-500/20"
+                      >
+                        <IconSpark className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200/80 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900/70 sm:px-5">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            {filledCount
+              ? `${filledCount} period${filledCount === 1 ? '' : 's'} will be saved. Empty rows are skipped.`
+              : 'Add a topic in any period you taught, then save.'}
+          </p>
+          <Button type="submit" variant="primary" disabled={busy || !canEdit || filledCount === 0}>
+            {busy ? 'Saving…' : 'Save today’s log'}
           </Button>
-          {error ? <p className="text-sm text-rose-600">{error}</p> : null}
-          {saved ? <p className="text-sm text-emerald-700">Teaching log saved.</p> : null}
-        </form>
-      </Card>
+        </div>
+      </form>
     </div>
   );
 }
@@ -1975,34 +2422,177 @@ export function TeacherTeachingLogPage() {
 export function TeacherSyllabusPage() {
   const { schoolId, teacher } = useTeacherContext();
   const [schoolName, setSchoolName] = useState('');
+  const [rows, setRows] = useState<SyllabusRow[]>([]);
+  const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({
+    classGrade: '',
+    section: '',
+    subject: 'Computer basics',
+    topic: '',
+    completedPct: 60,
+    topicsDone: 15,
+    topicsTotal: 25,
+  });
+  const [aiDraft, setAiDraft] = useState('');
+  const [aiSuggestedTopic, setAiSuggestedTopic] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiTone, setAiTone] = useState<TeachingAssistTone>('standard');
+
+  const topicSuggestions = useMemo(
+    () => suggestSyllabusTopics(form.subject || 'Computer basics', 6),
+    [form.subject],
+  );
+
+  const classOptions = useMemo(() => {
+    const grades = new Set<string>();
+    for (const raw of teacher?.assignedClasses ?? []) {
+      const match = String(raw).trim().match(/^(\d+)/);
+      if (match) grades.add(match[1]);
+      else if (String(raw).trim()) grades.add(String(raw).trim());
+    }
+    return [...grades].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [teacher?.assignedClasses]);
+
+  const sectionOptions = useMemo(() => {
+    const sections = new Set<string>();
+    for (const raw of teacher?.assignedClasses ?? []) {
+      const match = String(raw).trim().match(/^(\d+)\s*[-–]?\s*([A-Za-z])?$/);
+      if (!match) continue;
+      if (form.classGrade && match[1] !== form.classGrade) continue;
+      sections.add((match[2] ?? 'A').toUpperCase());
+    }
+    if (!sections.size) {
+      sections.add('A');
+      sections.add('B');
+    }
+    return [...sections].sort((a, b) => a.localeCompare(b));
+  }, [teacher?.assignedClasses, form.classGrade]);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!schoolId) return;
-      try {
-        const school = await getSchool(schoolId);
-        if (!cancelled) setSchoolName(school.name);
-      } catch {
-        if (!cancelled) setSchoolName('');
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [schoolId]);
+    if (!form.classGrade && classOptions[0]) {
+      setForm((f) => ({ ...f, classGrade: classOptions[0] }));
+    }
+  }, [classOptions, form.classGrade]);
 
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  useEffect(() => {
+    if (form.classGrade && sectionOptions.length && !sectionOptions.includes(form.section)) {
+      setForm((f) => ({ ...f, section: sectionOptions[0] }));
+    }
+  }, [form.classGrade, form.section, sectionOptions]);
+
+  async function refreshRows() {
+    if (!schoolId) {
+      setRows([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      const [school, data] = await Promise.all([
+        getSchool(schoolId),
+        listSyllabus({ schoolId }),
+      ]);
+      setSchoolName(school.name);
+      const mine = teacher?.id
+        ? data.filter((row) => !row.teacherId || row.teacherId === teacher.id)
+        : data;
+      setRows(
+        [...mine].sort((a, b) => b.completedPct - a.completedPct || a.classLabel.localeCompare(b.classLabel)),
+      );
+    } catch (e) {
+      setError(apiErrorMessage(e, 'Failed to load syllabus'));
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshRows();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schoolId, teacher?.id]);
+
+  function setField<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
+    setForm((prev) => {
+      const next = { ...prev, [key]: value };
+      if (key === 'completedPct' && typeof value === 'number') {
+        const total = Math.max(1, next.topicsTotal);
+        next.topicsDone = Math.min(total, Math.round((value / 100) * total));
+      }
+      if (key === 'topicsDone' || key === 'topicsTotal') {
+        const total = Math.max(1, key === 'topicsTotal' ? Number(value) : next.topicsTotal);
+        const done = Math.min(
+          total,
+          Math.max(0, key === 'topicsDone' ? Number(value) : next.topicsDone),
+        );
+        next.topicsTotal = total;
+        next.topicsDone = done;
+        next.completedPct = Math.round((done / total) * 100);
+      }
+      return next;
+    });
+    setSaved(false);
+    setError(null);
+  }
+
+  function runAiAssist(tone: TeachingAssistTone = aiTone) {
+    setAiBusy(true);
+    setAiTone(tone);
+    window.setTimeout(() => {
+      const draft = generateSyllabusSuggestion({
+        subject: form.subject,
+        topic: form.topic,
+        classGrade: form.classGrade,
+        section: form.section,
+        completedPct: form.completedPct,
+        topicsDone: form.topicsDone,
+        topicsTotal: form.topicsTotal,
+        tone,
+      });
+      setAiSuggestedTopic(draft.topic);
+      if (!form.topic.trim()) {
+        setForm((prev) => ({ ...prev, topic: draft.topic }));
+      }
+      setAiDraft(draft.note);
+      setAiBusy(false);
+    }, 280);
+  }
+
+  function applyAiTopic() {
+    const nextTopic = aiSuggestedTopic.trim() || topicSuggestions[0];
+    if (!nextTopic) return;
+    setField('topic', nextTopic);
+  }
+
+  const classLabel =
+    form.classGrade && form.section
+      ? `${form.classGrade}-${form.section.trim().toUpperCase()}`
+      : form.classGrade || '—';
+
+  const avgCompletion = rows.length
+    ? Math.round(rows.reduce((sum, row) => sum + row.completedPct, 0) / rows.length)
+    : 0;
+  const onTrack = rows.filter((row) => row.completedPct >= 80).length;
+  const needsFocus = rows.filter((row) => row.completedPct < 50).length;
+  const topicsRemaining = rows.reduce(
+    (sum, row) => sum + Math.max(0, row.topicsTotal - row.topicsDone),
+    0,
+  );
+
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!schoolId || !teacher) {
       setError('Missing school or teacher profile.');
       return;
     }
-    const form = new FormData(e.currentTarget);
-    const completedPct = Number(form.get('pct') ?? 0) || 0;
+    if (!form.classGrade.trim() || !form.section.trim() || !form.subject.trim() || !form.topic.trim()) {
+      setError('Please fill class, section, subject and topic.');
+      return;
+    }
+
     setBusy(true);
     setError(null);
     setSaved(false);
@@ -2012,14 +2602,16 @@ export function TeacherSyllabusPage() {
         schoolName: schoolName || schoolId,
         teacherId: teacher.id,
         teacherName: teacher.name,
-        classLabel: String(form.get('classLabel') ?? '7-A').trim() || '7-A',
-        subject: String(form.get('chapter') ?? '').trim(),
-        topic: String(form.get('topic') ?? '').trim(),
-        completedPct,
-        topicsDone: Math.round(completedPct / 4),
-        topicsTotal: 25,
+        classLabel,
+        subject: form.subject.trim(),
+        topic: form.topic.trim(),
+        completedPct: Math.min(100, Math.max(0, form.completedPct)),
+        topicsDone: Math.max(0, form.topicsDone),
+        topicsTotal: Math.max(1, form.topicsTotal),
       });
       setSaved(true);
+      setForm((f) => ({ ...f, topic: '' }));
+      await refreshRows();
     } catch (err) {
       setError(apiErrorMessage(err, 'Failed to update syllabus'));
     } finally {
@@ -2028,42 +2620,429 @@ export function TeacherSyllabusPage() {
   }
 
   return (
-    <div>
+    <div className="w-full space-y-4 sm:space-y-5">
       <PageHeader
         title="Syllabus Progress"
-        description="Update chapter, topic and completion percentage for your classes."
+        description={
+          schoolName
+            ? `Update chapter coverage for ${schoolName}. Use AI suggestions for topics and progress notes.`
+            : 'Update chapter, topic and completion percentage for your classes. AI suggestions help fill topics quickly.'
+        }
       />
-      <Card className="max-w-xl">
-        <form className="space-y-4" onSubmit={(e) => void handleSubmit(e)}>
-          <FormField id="syl-class" label="Class label" required>
-            <Input id="syl-class" name="classLabel" required placeholder="7-A" />
-          </FormField>
-          <FormField id="syl-chapter" label="Chapter" required>
-            <Input id="syl-chapter" name="chapter" required placeholder="Unit 3 · Graphics" />
-          </FormField>
-          <FormField id="syl-topic" label="Topic" required>
-            <Input id="syl-topic" name="topic" required placeholder="Paint brush tools" />
-          </FormField>
-          <FormField id="syl-pct" label="Completion %" required>
-            <Input
-              id="syl-pct"
-              name="pct"
-              type="number"
-              min={0}
-              max={100}
-              required
-              placeholder="72"
-            />
-          </FormField>
-          <Button type="submit" variant="primary" disabled={busy}>
-            Update Progress
-          </Button>
-          {error ? <p className="text-sm text-rose-600">{error}</p> : null}
-          {saved ? (
-            <p className="text-sm text-emerald-700">Syllabus progress updated.</p>
-          ) : null}
-        </form>
-      </Card>
+
+      {error ? (
+        <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800 dark:bg-rose-500/10 dark:text-rose-300">
+          {error}
+        </p>
+      ) : null}
+      {saved ? (
+        <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200">
+          Syllabus progress updated.
+        </p>
+      ) : null}
+
+      <div className="grid w-full gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Avg completion"
+          value={loading ? '…' : rows.length ? `${avgCompletion}%` : '—'}
+          hint={rows.length ? 'Across your class updates' : 'No updates yet'}
+          accent="amber"
+          icon={<IconBook className="h-4 w-4" />}
+        />
+        <StatCard
+          label="On track"
+          value={loading ? '…' : onTrack}
+          hint="≥ 80% complete"
+          accent="emerald"
+          icon={<IconCheck className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Needs focus"
+          value={loading ? '…' : needsFocus}
+          hint="< 50% complete"
+          accent="rose"
+          icon={<IconInfo className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Topics remaining"
+          value={loading ? '…' : topicsRemaining}
+          hint="Across tracked classes"
+          accent="sky"
+          icon={<IconClipboard className="h-4 w-4" />}
+        />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+        <Card padding="lg" className="w-full">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[0.95rem] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+                Update progress
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Record today’s chapter coverage for a class
+              </p>
+            </div>
+            <Badge tone={progressBadgeTone(form.completedPct)}>
+              {progressLabel(form.completedPct)}
+            </Badge>
+          </div>
+
+          <form className="space-y-4" onSubmit={(e) => void handleSubmit(e)}>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FormField id="syl-class" label="Class" required>
+                <select
+                  id="syl-class"
+                  className="field-control w-full"
+                  value={form.classGrade}
+                  onChange={(e) => setField('classGrade', e.target.value)}
+                  required
+                >
+                  <option value="">Select class</option>
+                  {classOptions.map((grade) => (
+                    <option key={grade} value={grade}>
+                      Class {grade}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              <FormField id="syl-section" label="Section" required>
+                <select
+                  id="syl-section"
+                  className="field-control w-full"
+                  value={form.section}
+                  onChange={(e) => setField('section', e.target.value)}
+                  required
+                >
+                  <option value="">Select section</option>
+                  {sectionOptions.map((sec) => (
+                    <option key={sec} value={sec}>
+                      Section {sec}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+            </div>
+
+            <FormField id="syl-subject" label="Subject / chapter" required>
+              <select
+                id="syl-subject"
+                className="field-control w-full"
+                value={
+                  TEACHING_SUBJECT_OPTIONS.includes(
+                    form.subject as (typeof TEACHING_SUBJECT_OPTIONS)[number],
+                  )
+                    ? form.subject
+                    : 'Other'
+                }
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value === 'Other') setField('subject', '');
+                  else setField('subject', value);
+                }}
+                required
+              >
+                {TEACHING_SUBJECT_OPTIONS.map((subject) => (
+                  <option key={subject} value={subject}>
+                    {subject}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+
+            {!TEACHING_SUBJECT_OPTIONS.includes(
+              form.subject as (typeof TEACHING_SUBJECT_OPTIONS)[number],
+            ) || form.subject === '' ? (
+              <FormField id="syl-subject-custom" label="Custom subject / chapter" required>
+                <Input
+                  id="syl-subject-custom"
+                  value={form.subject}
+                  onChange={(e) => setField('subject', e.target.value)}
+                  placeholder="e.g. Unit 3 · Graphics"
+                  required
+                />
+              </FormField>
+            ) : null}
+
+            <FormField id="syl-topic" label="Today's topic" required>
+              <Input
+                id="syl-topic"
+                value={form.topic}
+                onChange={(e) => setField('topic', e.target.value)}
+                placeholder="e.g. Paint brush tools"
+                required
+              />
+            </FormField>
+
+            {topicSuggestions.length ? (
+              <div className="-mt-1">
+                <p className="mb-1.5 text-xs font-medium text-slate-500">AI topic suggestions</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {topicSuggestions.map((idea) => (
+                    <button
+                      key={idea}
+                      type="button"
+                      onClick={() => setField('topic', idea)}
+                      className={[
+                        'rounded-md border px-2.5 py-1 text-xs font-medium transition',
+                        form.topic === idea
+                          ? 'border-brand-500 bg-brand-50 text-brand-800 dark:border-brand-400 dark:bg-orange-950/40 dark:text-brand-200'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-sky-500/40 dark:hover:bg-sky-500/10',
+                      ].join(' ')}
+                    >
+                      {idea}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-900/50">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                  Completion · {classLabel}
+                </p>
+                <span className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-50">
+                  {form.completedPct}%
+                </span>
+              </div>
+              <ProgressBar value={form.completedPct} variant="logo" />
+              <label className="mt-4 grid gap-1.5">
+                <span className="text-xs font-medium text-slate-500">Adjust percentage</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={form.completedPct}
+                  onChange={(e) => setField('completedPct', Number(e.target.value))}
+                  className="w-full accent-orange-500"
+                />
+              </label>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <FormField id="syl-done" label="Topics done">
+                  <Input
+                    id="syl-done"
+                    type="number"
+                    min={0}
+                    max={form.topicsTotal}
+                    value={form.topicsDone}
+                    onChange={(e) => setField('topicsDone', Number(e.target.value) || 0)}
+                  />
+                </FormField>
+                <FormField id="syl-total" label="Topics total">
+                  <Input
+                    id="syl-total"
+                    type="number"
+                    min={1}
+                    value={form.topicsTotal}
+                    onChange={(e) => setField('topicsTotal', Math.max(1, Number(e.target.value) || 1))}
+                  />
+                </FormField>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="submit" variant="primary" disabled={busy || !schoolId || !teacher}>
+                {busy ? 'Saving…' : 'Update progress'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={aiBusy}
+                onClick={() => runAiAssist('standard')}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <IconSpark className="h-4 w-4" />
+                  AI suggestions
+                </span>
+              </Button>
+            </div>
+          </form>
+        </Card>
+
+        <div className="space-y-4">
+          <section
+            className="rounded-xl border border-sky-200/80 bg-sky-50/70 px-4 py-4 dark:border-sky-500/25 dark:bg-sky-500/10 sm:px-5"
+            aria-labelledby="syllabus-ai-assist-heading"
+          >
+            <div className="flex gap-3">
+              <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-sky-100 text-sky-700 ring-1 ring-sky-200/80 dark:bg-sky-500/20 dark:text-sky-200 dark:ring-sky-500/30">
+                <IconSpark className="h-4 w-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p
+                  id="syllabus-ai-assist-heading"
+                  className="text-sm font-semibold text-sky-950 dark:text-sky-50"
+                >
+                  AI syllabus helper
+                </p>
+                <p className="mt-1 text-sm text-sky-900/80 dark:text-sky-100/85">
+                  Pick a suggested topic or generate a progress note for Class {classLabel}.
+                </p>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(
+                    [
+                      { id: 'short', label: 'Short' },
+                      { id: 'standard', label: 'Standard' },
+                      { id: 'detailed', label: 'Detailed' },
+                    ] as const
+                  ).map((tone) => (
+                    <button
+                      key={tone.id}
+                      type="button"
+                      onClick={() => runAiAssist(tone.id)}
+                      disabled={aiBusy}
+                      className={[
+                        'inline-flex items-center rounded-md border px-3 py-1.5 text-xs font-semibold transition',
+                        aiTone === tone.id && aiDraft
+                          ? 'border-sky-500 bg-white text-sky-800 shadow-sm dark:border-sky-400 dark:bg-slate-800 dark:text-sky-200'
+                          : 'border-sky-200/80 bg-white/60 text-sky-800 hover:bg-white dark:border-sky-500/30 dark:bg-slate-900/40 dark:text-sky-100',
+                        'disabled:pointer-events-none disabled:opacity-50',
+                      ].join(' ')}
+                    >
+                      {tone.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-3">
+                  <p className="mb-1.5 text-xs font-medium text-sky-900/70 dark:text-sky-100/70">
+                    Quick topics
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {topicSuggestions.map((idea) => (
+                      <button
+                        key={`ai-${idea}`}
+                        type="button"
+                        onClick={() => setField('topic', idea)}
+                        className={[
+                          'rounded-md border px-2.5 py-1 text-xs font-medium transition',
+                          form.topic === idea
+                            ? 'border-sky-500 bg-white text-sky-800 dark:border-sky-400 dark:bg-slate-800 dark:text-sky-200'
+                            : 'border-sky-200/70 bg-white/70 text-sky-900 hover:bg-white dark:border-sky-500/25 dark:bg-slate-900/40 dark:text-sky-100',
+                        ].join(' ')}
+                      >
+                        {idea}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-3 rounded-lg border border-sky-200/70 bg-white/80 p-3 dark:border-sky-500/20 dark:bg-slate-900/50">
+                  {aiBusy ? (
+                    <p className="text-sm text-sky-800/80 dark:text-sky-200/80">Drafting…</p>
+                  ) : aiDraft ? (
+                    <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+                      {aiDraft}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-slate-500">
+                      Choose Short / Standard / Detailed to draft a syllabus progress note, or tap a
+                      quick topic above.
+                    </p>
+                  )}
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="primary"
+                    disabled={!aiSuggestedTopic.trim() && !topicSuggestions.length}
+                    onClick={applyAiTopic}
+                  >
+                    Use suggested topic
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={!aiDraft.trim()}
+                    onClick={() => {
+                      setAiDraft('');
+                      setAiSuggestedTopic('');
+                    }}
+                  >
+                    Clear draft
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <Card padding="lg" className="flex flex-col items-center text-center">
+            <p className="text-[0.95rem] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+              Live preview
+            </p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              How this update will look for Class {classLabel}
+            </p>
+            <div className="mt-5">
+              <ProgressRing value={form.completedPct} size={104} stroke={8} />
+            </div>
+            <p className="mt-3 text-sm font-semibold text-slate-800 dark:text-slate-100">
+              {form.topic.trim() || 'Add today’s topic'}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {form.subject || 'Subject'} · {form.topicsDone}/{form.topicsTotal} topics
+            </p>
+            <div className="mt-3">
+              <Badge tone={progressBadgeTone(form.completedPct)}>
+                {progressLabel(form.completedPct)}
+              </Badge>
+            </div>
+          </Card>
+
+          <Card padding="none" className="overflow-hidden">
+            <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800 sm:px-5">
+              <h2 className="text-[0.95rem] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+                Your class progress
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Recent syllabus updates for your school
+              </p>
+            </div>
+            {loading ? (
+              <p className="py-10 text-center text-sm text-slate-500">Loading syllabus…</p>
+            ) : rows.length === 0 ? (
+              <EmptyState message="No syllabus updates yet" className="min-h-[9rem] py-8" />
+            ) : (
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                {rows.slice(0, 8).map((row) => {
+                  const remaining = Math.max(0, row.topicsTotal - row.topicsDone);
+                  return (
+                    <li key={row.id} className="px-4 py-3 sm:px-5">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-slate-900 dark:text-slate-50">
+                            {row.classLabel}
+                            <span className="font-medium text-slate-500"> · {row.subject}</span>
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-500">{row.topic}</p>
+                        </div>
+                        <Badge tone={progressBadgeTone(row.completedPct)}>
+                          {row.completedPct}%
+                        </Badge>
+                      </div>
+                      <div className="mt-2.5 flex items-center gap-3">
+                        <ProgressBar
+                          value={row.completedPct}
+                          variant="logo"
+                          className="min-w-0 flex-1"
+                        />
+                        <span className="shrink-0 text-xs tabular-nums text-slate-500">
+                          {row.topicsDone}/{row.topicsTotal}
+                          {remaining ? ` · ${remaining} left` : ''}
+                        </span>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2109,6 +3088,7 @@ export function TeacherLeavePage() {
 
   const stats = useMemo(() => computeLeaveStats(history), [history]);
   const myRequests = history.filter((l) => l.status === 'Pending');
+  const leaveHistoryPagination = useTablePagination(history, { resetDeps: [panel] });
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -2348,7 +3328,7 @@ export function TeacherLeavePage() {
               {history.length === 0 ? (
                 <DataTableEmpty colSpan={6} />
               ) : (
-                history.map((leave) => (
+                leaveHistoryPagination.pageItems.map((leave) => (
                   <tr key={leave.id}>
                     <Td className="font-medium text-slate-900 dark:text-slate-100">
                       {leave.type}
@@ -2368,6 +3348,15 @@ export function TeacherLeavePage() {
                 ))
               )}
             </DataTable>
+            <TablePagination
+              totalCount={leaveHistoryPagination.totalCount}
+              page={leaveHistoryPagination.page}
+              totalPages={leaveHistoryPagination.totalPages}
+              rangeFrom={leaveHistoryPagination.rangeFrom}
+              rangeTo={leaveHistoryPagination.rangeTo}
+              onPageChange={leaveHistoryPagination.setPage}
+              label="requests"
+            />
           </Card>
         </section>
       ) : null}
@@ -2398,6 +3387,8 @@ export function TeacherAssetsPage() {
     };
   }, [schoolId]);
 
+  const assetsPagination = useTablePagination(schoolAssets);
+
   return (
     <div>
       <PageHeader
@@ -2405,32 +3396,43 @@ export function TeacherAssetsPage() {
         description="View assets assigned to your school. Report issues via support tickets."
       />
       {loadError ? <p className="mb-4 text-sm text-rose-600">{loadError}</p> : null}
-      <Card>
+      <Card padding="none" className="overflow-hidden">
         {loading ? (
           <p className="py-8 text-center text-sm text-slate-500">Loading assets…</p>
         ) : (
-          <DataTable headers={['Type', 'Quantity', 'Status', 'Warranty']}>
-            {schoolAssets.map((asset) => (
-              <tr key={asset.id}>
-                <Td className="font-medium text-slate-900">{asset.type}</Td>
-                <Td>{asset.quantity}</Td>
-                <Td>
-                  <Badge
-                    tone={
-                      asset.workingStatus === 'Working'
-                        ? 'success'
-                        : asset.workingStatus === 'Needs Repair'
-                          ? 'warning'
-                          : 'danger'
-                    }
-                  >
-                    {asset.workingStatus}
-                  </Badge>
-                </Td>
-                <Td>{asset.warranty}</Td>
-              </tr>
-            ))}
-          </DataTable>
+          <>
+            <DataTable headers={['Type', 'Quantity', 'Status', 'Warranty']}>
+              {assetsPagination.pageItems.map((asset) => (
+                <tr key={asset.id}>
+                  <Td className="font-medium text-slate-900">{asset.type}</Td>
+                  <Td>{asset.quantity}</Td>
+                  <Td>
+                    <Badge
+                      tone={
+                        asset.workingStatus === 'Working'
+                          ? 'success'
+                          : asset.workingStatus === 'Needs Repair'
+                            ? 'warning'
+                            : 'danger'
+                      }
+                    >
+                      {asset.workingStatus}
+                    </Badge>
+                  </Td>
+                  <Td>{asset.warranty}</Td>
+                </tr>
+              ))}
+            </DataTable>
+            <TablePagination
+              totalCount={assetsPagination.totalCount}
+              page={assetsPagination.page}
+              totalPages={assetsPagination.totalPages}
+              rangeFrom={assetsPagination.rangeFrom}
+              rangeTo={assetsPagination.rangeTo}
+              onPageChange={assetsPagination.setPage}
+              label="assets"
+            />
+          </>
         )}
       </Card>
     </div>
@@ -2627,29 +3629,141 @@ export function TeacherTicketsPage() {
 
 export function TeacherEventsPage() {
   const { schoolId } = useTeacherContext();
+  const today = localDateKey();
+  const [schoolName, setSchoolName] = useState('');
+  const [list, setList] = useState<EventItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({
+    eventType: 'Celebration' as string,
+    name: '',
+    date: today,
+    description: '',
+  });
+  const [files, setFiles] = useState<File[]>([]);
+  const [previews, setPreviews] = useState<string[]>([]);
+  const [aiExtra, setAiExtra] = useState('');
+  const [aiAudience, setAiAudience] = useState<EventAudience>('students');
+  const [aiTone, setAiTone] = useState<EventAssistTone>('standard');
+  const [aiDraft, setAiDraft] = useState('');
+  const [aiSuggestedName, setAiSuggestedName] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
 
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  const nameSuggestions = useMemo(
+    () => suggestEventNames(form.eventType, `${form.name} ${aiExtra}`, 6),
+    [form.eventType, form.name, aiExtra],
+  );
+
+  async function refreshEvents() {
+    if (!schoolId) {
+      setList([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      const [school, events] = await Promise.all([
+        getSchool(schoolId),
+        listEvents({ schoolId }),
+      ]);
+      setSchoolName(school.name);
+      setList([...events].sort((a, b) => b.date.localeCompare(a.date)));
+    } catch (e) {
+      setError(apiErrorMessage(e, 'Failed to load events'));
+      setList([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshEvents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schoolId]);
+
+  useEffect(() => {
+    return () => {
+      previews.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [previews]);
+
+  function setField<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setSaved(false);
+    setError(null);
+  }
+
+  function onPickImages(fileList: FileList | null) {
+    const next = Array.from(fileList ?? []).filter((f) => f.type.startsWith('image/'));
+    previews.forEach((url) => URL.revokeObjectURL(url));
+    setFiles(next);
+    setPreviews(next.map((file) => URL.createObjectURL(file)));
+  }
+
+  function runAiAssist(tone: EventAssistTone = aiTone) {
+    setAiBusy(true);
+    setAiTone(tone);
+    window.setTimeout(() => {
+      const draft = generateEventCopy({
+        eventType: form.eventType,
+        name: form.name,
+        extra: aiExtra,
+        schoolName,
+        date: form.date,
+        audience: aiAudience,
+        tone,
+      });
+      setAiSuggestedName(draft.name);
+      setAiDraft(draft.description);
+      if (!form.name.trim()) setField('name', draft.name);
+      setAiBusy(false);
+    }, 280);
+  }
+
+  function applyAiName() {
+    const next = aiSuggestedName.trim() || nameSuggestions[0];
+    if (next) setField('name', next);
+  }
+
+  function applyAiDescription() {
+    if (aiDraft.trim()) setField('description', aiDraft.trim());
+  }
+
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!schoolId) {
       setError('No school assigned.');
       return;
     }
-    const formEl = e.currentTarget;
-    const form = new FormData(formEl);
+    if (!form.name.trim() || !form.description.trim()) {
+      setError('Please add an event name and description.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       await createEvent({
         schoolId,
-        name: String(form.get('name') ?? '').trim(),
-        date: localDateKey(),
-        description: String(form.get('description') ?? '').trim(),
+        name: form.name.trim(),
+        date: form.date || today,
+        description: form.description.trim(),
       });
-      formEl.reset();
+      setForm({
+        eventType: form.eventType,
+        name: '',
+        date: today,
+        description: '',
+      });
+      previews.forEach((url) => URL.revokeObjectURL(url));
+      setFiles([]);
+      setPreviews([]);
+      setAiDraft('');
+      setAiSuggestedName('');
+      setAiExtra('');
       setSaved(true);
+      await refreshEvents();
     } catch (err) {
       setError(apiErrorMessage(err, 'Failed to upload event'));
     } finally {
@@ -2657,41 +3771,349 @@ export function TeacherEventsPage() {
     }
   }
 
+  const thisMonth = list.filter((ev) => ev.date.slice(0, 7) === today.slice(0, 7)).length;
+
   return (
-    <div>
+    <div className="w-full space-y-4 sm:space-y-5">
       <PageHeader
         title="Event Upload"
-        description="Upload images with event name and description for your school."
+        description={
+          schoolName
+            ? `Share photos and a short story from ${schoolName}. Use AI to draft names and captions.`
+            : 'Upload event images with a name and description. AI can draft flexible captions for you.'
+        }
       />
-      <Card className="max-w-xl">
-        <form className="space-y-4" onSubmit={(e) => void handleSubmit(e)}>
-          <FormField id="ev-name" label="Event name" required>
-            <Input id="ev-name" name="name" required placeholder="Independence Day Tech Showcase" />
-          </FormField>
-          <FormField id="ev-desc" label="Description" required>
-            <textarea
-              id="ev-desc"
-              name="description"
-              className="field-control min-h-24 w-full"
-              required
-            />
-          </FormField>
-          <FormField id="ev-images" label="Images" required>
-            <input
-              id="ev-images"
-              type="file"
-              accept="image/*"
-              multiple
-              className="field-control w-full"
-            />
-          </FormField>
-          <Button type="submit" variant="primary" disabled={busy}>
-            Upload Event
-          </Button>
-          {error ? <p className="text-sm text-rose-600">{error}</p> : null}
-          {saved ? <p className="text-sm text-emerald-700">Event uploaded.</p> : null}
-        </form>
-      </Card>
+
+      {error ? (
+        <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800 dark:bg-rose-500/10 dark:text-rose-300">
+          {error}
+        </p>
+      ) : null}
+      {saved ? (
+        <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200">
+          Event uploaded.
+        </p>
+      ) : null}
+
+      <div className="grid w-full gap-3 grid-cols-1 sm:grid-cols-3">
+        <StatCard
+          label="Events this month"
+          value={loading ? '…' : thisMonth}
+          hint={today.slice(0, 7)}
+          accent="brand"
+          icon={<IconImage className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Gallery total"
+          value={loading ? '…' : list.length}
+          hint={schoolName || 'Your school'}
+          accent="sky"
+          icon={<IconCalendar className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Photos selected"
+          value={files.length}
+          hint={files.length ? 'Ready to attach' : 'Optional preview'}
+          accent="emerald"
+          icon={<IconSpark className="h-4 w-4" />}
+        />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+        <Card padding="lg" className="w-full">
+          <div className="mb-4">
+            <p className="text-[0.95rem] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+              New event
+            </p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Name the moment, add a description, then attach photos
+            </p>
+          </div>
+
+          <form className="space-y-4" onSubmit={(e) => void handleSubmit(e)}>
+            <div>
+              <p className="mb-1.5 text-xs font-medium text-slate-500">Event type</p>
+              <div className="flex flex-wrap gap-1.5">
+                {EVENT_TYPE_OPTIONS.map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => setField('eventType', type)}
+                    className={[
+                      'rounded-md border px-2.5 py-1 text-xs font-medium transition',
+                      form.eventType === type
+                        ? 'border-brand-500 bg-brand-50 text-brand-800 dark:border-brand-400 dark:bg-orange-950/40 dark:text-brand-200'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-sky-300 hover:bg-sky-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300',
+                    ].join(' ')}
+                  >
+                    {type}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FormField id="ev-name" label="Event name" required>
+                <Input
+                  id="ev-name"
+                  value={form.name}
+                  onChange={(e) => setField('name', e.target.value)}
+                  placeholder="Independence Day Tech Showcase"
+                  required
+                />
+              </FormField>
+              <FormField id="ev-date" label="Date" required>
+                <Input
+                  id="ev-date"
+                  type="date"
+                  value={form.date}
+                  onChange={(e) => setField('date', e.target.value)}
+                  required
+                />
+              </FormField>
+            </div>
+
+            {nameSuggestions.length ? (
+              <div className="-mt-1">
+                <p className="mb-1.5 text-xs font-medium text-slate-500">AI name suggestions</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {nameSuggestions.map((idea) => (
+                    <button
+                      key={idea}
+                      type="button"
+                      onClick={() => setField('name', idea)}
+                      className={[
+                        'rounded-md border px-2.5 py-1 text-xs font-medium transition',
+                        form.name === idea
+                          ? 'border-brand-500 bg-brand-50 text-brand-800 dark:border-brand-400 dark:bg-orange-950/40 dark:text-brand-200'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-sky-300 hover:bg-sky-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300',
+                      ].join(' ')}
+                    >
+                      {idea}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <FormField id="ev-desc" label="Description" required>
+              <textarea
+                id="ev-desc"
+                className="field-control min-h-28 w-full"
+                value={form.description}
+                onChange={(e) => setField('description', e.target.value)}
+                placeholder="What happened, who joined, and what students learned…"
+                required
+              />
+            </FormField>
+
+            <FormField id="ev-images" label="Images">
+              <input
+                id="ev-images"
+                type="file"
+                accept="image/*"
+                multiple
+                className="field-control w-full"
+                onChange={(e) => onPickImages(e.target.files)}
+              />
+            </FormField>
+            {previews.length ? (
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                {previews.map((src, index) => (
+                  <img
+                    key={src}
+                    src={src}
+                    alt={files[index]?.name ?? `Photo ${index + 1}`}
+                    className="h-20 w-full rounded-lg object-cover ring-1 ring-slate-200 dark:ring-slate-700"
+                  />
+                ))}
+              </div>
+            ) : null}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="submit" variant="primary" disabled={busy || !schoolId}>
+                {busy ? 'Uploading…' : 'Upload event'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={aiBusy}
+                onClick={() => runAiAssist('standard')}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <IconSpark className="h-4 w-4" />
+                  Draft with AI
+                </span>
+              </Button>
+            </div>
+          </form>
+        </Card>
+
+        <div className="space-y-4">
+          <section
+            className="rounded-xl border border-sky-200/80 bg-sky-50/70 px-4 py-4 dark:border-sky-500/25 dark:bg-sky-500/10 sm:px-5"
+            aria-labelledby="event-ai-assist-heading"
+          >
+            <div className="flex gap-3">
+              <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-sky-100 text-sky-700 ring-1 ring-sky-200/80 dark:bg-sky-500/20 dark:text-sky-200 dark:ring-sky-500/30">
+                <IconSpark className="h-4 w-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p
+                  id="event-ai-assist-heading"
+                  className="text-sm font-semibold text-sky-950 dark:text-sky-50"
+                >
+                  AI event helper
+                </p>
+                <p className="mt-1 text-sm text-sky-900/80 dark:text-sky-100/85">
+                  Mix event type, audience and extra keywords — then generate a name or caption.
+                </p>
+
+                <FormField id="ev-ai-extra" label="Extra keywords (optional)">
+                  <Input
+                    id="ev-ai-extra"
+                    value={aiExtra}
+                    onChange={(e) => setAiExtra(e.target.value)}
+                    placeholder="e.g. typing contest, class 7, prizes"
+                  />
+                </FormField>
+
+                <p className="mt-3 mb-1.5 text-xs font-medium text-sky-900/70 dark:text-sky-100/70">
+                  Audience
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {(
+                    [
+                      { id: 'students', label: 'Students' },
+                      { id: 'parents', label: 'Parents' },
+                      { id: 'community', label: 'Community' },
+                    ] as const
+                  ).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setAiAudience(item.id)}
+                      className={[
+                        'rounded-md border px-2.5 py-1 text-xs font-semibold transition',
+                        aiAudience === item.id
+                          ? 'border-sky-500 bg-white text-sky-800 dark:border-sky-400 dark:bg-slate-800 dark:text-sky-200'
+                          : 'border-sky-200/70 bg-white/70 text-sky-900 hover:bg-white dark:border-sky-500/25 dark:bg-slate-900/40 dark:text-sky-100',
+                      ].join(' ')}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+
+                <p className="mt-3 mb-1.5 text-xs font-medium text-sky-900/70 dark:text-sky-100/70">
+                  Style
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      { id: 'short', label: 'Short' },
+                      { id: 'standard', label: 'Standard' },
+                      { id: 'detailed', label: 'Detailed' },
+                      { id: 'caption', label: 'Caption' },
+                    ] as const
+                  ).map((tone) => (
+                    <button
+                      key={tone.id}
+                      type="button"
+                      onClick={() => runAiAssist(tone.id)}
+                      disabled={aiBusy}
+                      className={[
+                        'inline-flex items-center rounded-md border px-3 py-1.5 text-xs font-semibold transition',
+                        aiTone === tone.id && aiDraft
+                          ? 'border-sky-500 bg-white text-sky-800 shadow-sm dark:border-sky-400 dark:bg-slate-800 dark:text-sky-200'
+                          : 'border-sky-200/80 bg-white/60 text-sky-800 hover:bg-white dark:border-sky-500/30 dark:bg-slate-900/40 dark:text-sky-100',
+                        'disabled:pointer-events-none disabled:opacity-50',
+                      ].join(' ')}
+                    >
+                      {tone.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-3 rounded-lg border border-sky-200/70 bg-white/80 p-3 dark:border-sky-500/20 dark:bg-slate-900/50">
+                  {aiBusy ? (
+                    <p className="text-sm text-sky-800/80 dark:text-sky-200/80">Drafting…</p>
+                  ) : aiDraft ? (
+                    <>
+                      {aiSuggestedName ? (
+                        <p className="mb-1 text-xs font-semibold text-sky-800 dark:text-sky-200">
+                          {aiSuggestedName}
+                        </p>
+                      ) : null}
+                      <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+                        {aiDraft}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-slate-500">
+                      Add keywords like “lab, class 8, mouse practice”, pick an audience, then choose
+                      a style.
+                    </p>
+                  )}
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button type="button" variant="primary" disabled={!aiDraft.trim()} onClick={applyAiDescription}>
+                    Use description
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!aiSuggestedName.trim() && !nameSuggestions.length}
+                    onClick={applyAiName}
+                  >
+                    Use name
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={!aiDraft.trim()}
+                    onClick={() => {
+                      setAiDraft('');
+                      setAiSuggestedName('');
+                    }}
+                  >
+                    Clear draft
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <Card padding="none" className="overflow-hidden">
+            <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800 sm:px-5">
+              <h2 className="text-[0.95rem] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+                Recent events
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-500">Latest uploads for your school</p>
+            </div>
+            {loading ? (
+              <p className="py-10 text-center text-sm text-slate-500">Loading events…</p>
+            ) : list.length === 0 ? (
+              <EmptyState message="No events uploaded yet" className="min-h-[9rem] py-8" />
+            ) : (
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                {list.slice(0, 6).map((event) => (
+                  <li key={event.id} className="px-4 py-3 sm:px-5">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <p className="font-semibold text-slate-900 dark:text-slate-50">{event.name}</p>
+                      <Badge tone="info">{event.date}</Badge>
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-sm text-slate-600 dark:text-slate-300">
+                      {event.description}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }

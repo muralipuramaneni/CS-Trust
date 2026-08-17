@@ -196,20 +196,20 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         >
           <div
             className={cn(
-              'flex shrink-0 items-center gap-1 border-b border-white/8 py-3',
-              collapsed ? 'flex-col gap-2 px-2' : 'px-2.5',
+              'flex shrink-0 items-center border-b border-white/8 py-3',
+              collapsed ? 'flex-col gap-2 px-2' : 'gap-1.5 px-2.5',
             )}
           >
             <Link
               to={home}
               className={cn(
-                'inline-flex min-w-0 items-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400',
+                'inline-flex min-w-0 items-center overflow-hidden rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400',
                 collapsed ? 'justify-center' : 'flex-1',
               )}
               onClick={() => setOpen(false)}
               title="Chaitanya Saradhi Trust"
             >
-              <BrandMark size="sm" showName={!collapsed} theme="dark" />
+              <BrandMark size="sm" showName={!collapsed} theme="dark" className="max-w-full" />
             </Link>
             <button
               type="button"

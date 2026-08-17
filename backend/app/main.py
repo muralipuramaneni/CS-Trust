@@ -41,6 +41,7 @@ async def lifespan(_: FastAPI):
     # create_all does not alter existing tables — ensure critical indexes/columns.
     ensure_sql = [
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE teaching_logs ADD COLUMN IF NOT EXISTS period INTEGER NOT NULL DEFAULT 0",
         """
         CREATE UNIQUE INDEX IF NOT EXISTS uq_teacher_attendance_teacher_date
         ON teacher_attendance (teacher_id, date)

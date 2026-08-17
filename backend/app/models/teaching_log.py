@@ -14,6 +14,7 @@ class TeachingLog(Base):
     school_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     class_grade: Mapped[str] = mapped_column(String(16), nullable=False)
     section: Mapped[str] = mapped_column(String(16), nullable=False)
+    period: Mapped[int] = mapped_column(Integer, default=0)
     subject: Mapped[str] = mapped_column(String(128), nullable=False)
     topic: Mapped[str] = mapped_column(String(255), nullable=False)
     duration_minutes: Mapped[int] = mapped_column(Integer, default=0)

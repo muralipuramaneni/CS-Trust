@@ -38,14 +38,14 @@ export function AuthLayout({
 }: AuthLayoutProps) {
   return (
     <div className="relative min-h-screen lg:grid lg:grid-cols-2">
-      {/* Entire page — top-left corner logo */}
-      <div className="pointer-events-auto absolute left-4 top-4 z-[60] sm:left-5 sm:top-5">
-        <BrandMark size="form" align="left" />
-      </div>
-
-      {/* Theme toggle — top-right */}
-      <div className="pointer-events-auto absolute right-4 top-4 z-[60] sm:right-5 sm:top-5">
-        <ThemeToggle compact />
+      {/* Top bar — keeps logo + theme toggle aligned and clear of the form */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-[60] flex items-center justify-between gap-3 px-4 py-3 sm:px-5 sm:py-4">
+        <div className="pointer-events-auto shrink-0">
+          <BrandMark size="form" align="left" />
+        </div>
+        <div className="pointer-events-auto shrink-0">
+          <ThemeToggle compact />
+        </div>
       </div>
 
       {/* LEFT collage */}
@@ -163,8 +163,8 @@ export function AuthLayout({
         </div>
       </section>
 
-      {/* RIGHT form portal — mirrors .auth-form-side */}
-      <section className="auth-form-side relative z-[2] grid min-h-screen place-items-center bg-[#f4f7fb] px-7 py-10 dark:bg-slate-950">
+      {/* RIGHT form portal — top padding clears the floating logo on mobile */}
+      <section className="auth-form-side relative z-[2] grid min-h-screen place-items-center bg-[#f4f7fb] px-5 pb-10 pt-[4.75rem] dark:bg-slate-950 sm:px-7 sm:pt-[5.5rem] lg:px-7 lg:py-10">
         <div className="flex w-full max-w-[24.5rem] flex-col items-stretch">
           {eyebrow ? (
             <p className="mb-2.5 text-center text-[0.65rem] font-bold uppercase tracking-[0.2em] text-[#ff6a00]">
