@@ -213,6 +213,9 @@ export function AdminDashboardPage() {
       : 0);
   const pendingLeaves =
     summary?.pendingLeaveCount ?? leaves.filter((l) => l.status === 'Pending').length;
+  const attentionTickets = tickets.filter(
+    (t) => t.status !== 'Resolved' && t.status !== 'Closed',
+  );
   const totalStudents = summary?.studentCount ?? students.length;
   const teacherPresencePct = 0;
   const presentTeachers = Math.round((teacherPresencePct / 100) * Math.max(teachers.length, 1));
@@ -371,28 +374,28 @@ export function AdminDashboardPage() {
             value: presentTeachers,
             detail: `of ${teachersCount} on roster`,
             icon: IconClock,
-            tone: 'text-sky-700 bg-sky-50 ring-sky-100',
+            tone: 'text-sky-700 bg-sky-50 ring-sky-100 dark:text-sky-300 dark:bg-sky-500/15 dark:ring-sky-500/30',
           },
           {
             label: 'Students present',
             value: presentStudents,
             detail: '93% of active roll',
             icon: IconCheck,
-            tone: 'text-emerald-700 bg-emerald-50 ring-emerald-100',
+            tone: 'text-emerald-700 bg-emerald-50 ring-emerald-100 dark:text-emerald-300 dark:bg-emerald-500/15 dark:ring-emerald-500/30',
           },
           {
             label: 'Schools covered',
             value: schoolsCovered,
             detail: 'Logged activity today',
             icon: IconSchool,
-            tone: 'text-orange-700 bg-orange-50 ring-orange-100',
+            tone: 'text-orange-700 bg-orange-50 ring-orange-100 dark:text-orange-300 dark:bg-orange-500/15 dark:ring-orange-500/30',
           },
           {
             label: 'Open tickets',
             value: openTickets,
             detail: `${pendingLeaves} leave pending`,
             icon: IconTicket,
-            tone: 'text-rose-700 bg-rose-50 ring-rose-100',
+            tone: 'text-rose-700 bg-rose-50 ring-rose-100 dark:text-rose-300 dark:bg-rose-500/15 dark:ring-rose-500/30',
           },
         ].map((item) => {
           const Icon = item.icon;
@@ -404,9 +407,9 @@ export function AdminDashboardPage() {
                 <Icon className="h-5 w-5" />
               </span>
               <div>
-                <p className="text-xs font-medium text-slate-500">{item.label}</p>
-                <p className="text-2xl font-bold tracking-tight text-slate-900">{item.value}</p>
-                <p className="text-xs text-slate-400">{item.detail}</p>
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{item.label}</p>
+                <p className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">{item.value}</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500">{item.detail}</p>
               </div>
             </Card>
           );
@@ -429,6 +432,9 @@ export function AdminDashboardPage() {
             Syllabus completion by school
           </SectionTitle>
 
+          {schools.length === 0 ? (
+            <EmptyState message="No school syllabus data found" className="min-h-[10rem] py-8" />
+          ) : (
           <div
             className={
               schools.length > 4
@@ -439,7 +445,7 @@ export function AdminDashboardPage() {
             {schools.map((school, index) => (
               <div
                 key={school.id}
-                className="group rounded-xl border border-slate-100/90 bg-gradient-to-br from-slate-50/80 via-white to-sky-50/40 p-4 transition duration-300 hover:border-sky-200/80 hover:from-sky-50/50 hover:to-white hover:shadow-[0_8px_24px_-16px_rgba(0,114,188,0.35)] dark:border-slate-800 dark:from-slate-900/80 dark:via-slate-900 dark:to-sky-950/20 dark:hover:border-sky-800/60"
+                className="rounded-xl border border-slate-100/90 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/60"
                 style={{ animationDelay: `${index * 60}ms` }}
               >
                 <div className="flex items-start gap-4">
@@ -479,6 +485,7 @@ export function AdminDashboardPage() {
               </div>
             ))}
           </div>
+          )}
         </Card>
 
         <Card className="min-w-0 xl:col-span-2" padding="lg">
@@ -491,6 +498,9 @@ export function AdminDashboardPage() {
           >
             Recent activities
           </SectionTitle>
+          {recentActivities.length === 0 ? (
+            <EmptyState message="No recent activity found" className="min-h-[10rem] py-8" />
+          ) : (
           <ol className="relative space-y-0">
             {recentActivities.map((item, index) => {
               const meta = activityTone[index % activityTone.length];
@@ -513,6 +523,7 @@ export function AdminDashboardPage() {
               );
             })}
           </ol>
+          )}
         </Card>
       </section>
 
@@ -523,7 +534,7 @@ export function AdminDashboardPage() {
             action={
               <Link
                 to="/admin/tickets"
-                className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600"
+                className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 dark:text-brand-400"
               >
                 View all <IconArrowRight className="h-3.5 w-3.5" />
               </Link>
@@ -531,28 +542,29 @@ export function AdminDashboardPage() {
           >
             Needs attention
           </SectionTitle>
+          {attentionTickets.length === 0 && pendingLeaves === 0 ? (
+            <EmptyState message="No items need attention" className="min-h-[10rem] py-8" />
+          ) : (
           <div className="space-y-3">
-            {tickets
-              .filter((t) => t.status !== 'Resolved' && t.status !== 'Closed')
-              .map((ticket) => (
+            {attentionTickets.map((ticket) => (
                 <div
                   key={ticket.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-100 bg-gradient-to-r from-white to-slate-50/80 px-4 py-3"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-100 bg-gradient-to-r from-white to-slate-50/80 px-4 py-3 dark:border-slate-800 dark:from-slate-900/80 dark:to-slate-800/40"
                 >
                   <div className="flex min-w-0 items-start gap-3">
-                    <span className="mt-0.5 grid h-9 w-9 place-items-center rounded-lg bg-rose-50 text-rose-600 ring-1 ring-rose-100">
+                    <span className="mt-0.5 grid h-9 w-9 place-items-center rounded-lg bg-rose-50 text-rose-600 ring-1 ring-rose-100 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/25">
                       <IconAlert className="h-4 w-4" />
                     </span>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-semibold text-slate-900">
+                        <p className="font-semibold text-slate-900 dark:text-slate-50">
                           {ticket.id.toUpperCase()} · {ticket.type}
                         </p>
                         <Badge tone={ticket.status === 'Open' ? 'danger' : 'warning'}>
                           {ticket.status}
                         </Badge>
                       </div>
-                      <p className="mt-0.5 truncate text-sm text-slate-500">
+                      <p className="mt-0.5 truncate text-sm text-slate-500 dark:text-slate-400">
                         {schoolNameById(ticket.schoolId)} — {ticket.description}
                       </p>
                     </div>
@@ -568,16 +580,16 @@ export function AdminDashboardPage() {
                 </div>
               ))}
             {pendingLeaves > 0 ? (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-100 bg-amber-50/50 px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-100 bg-amber-50/50 px-4 py-3 dark:border-amber-500/25 dark:bg-amber-500/10">
                 <div className="flex items-start gap-3">
-                  <span className="grid h-9 w-9 place-items-center rounded-lg bg-amber-100 text-amber-800">
+                  <span className="grid h-9 w-9 place-items-center rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300">
                     <IconCalendar className="h-4 w-4" />
                   </span>
                   <div>
-                    <p className="font-semibold text-slate-900">
+                    <p className="font-semibold text-slate-900 dark:text-slate-50">
                       {pendingLeaves} leave request pending approval
                     </p>
-                    <p className="text-sm text-slate-500">
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
                       Teachers waiting for admin response
                     </p>
                   </div>
@@ -590,21 +602,22 @@ export function AdminDashboardPage() {
               </div>
             ) : null}
           </div>
+          )}
         </Card>
 
         <Card padding="lg">
           <SectionTitle>Resources</SectionTitle>
-          <div className="mb-5 flex items-center gap-4 rounded-lg bg-slate-50 p-4 ring-1 ring-slate-100">
-            <span className="grid h-12 w-12 place-items-center rounded-lg bg-white text-slate-700 shadow-sm ring-1 ring-slate-200/80">
+          <div className="mb-5 flex items-center gap-4 rounded-lg bg-slate-50 p-4 ring-1 ring-slate-100 dark:bg-slate-800/60 dark:ring-slate-700">
+            <span className="grid h-12 w-12 place-items-center rounded-lg bg-white text-slate-700 shadow-sm ring-1 ring-slate-200/80 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-600">
               <IconBox className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-xs font-medium text-slate-500">Assets tracked</p>
-              <p className="text-2xl font-bold text-slate-900">{assetsCount}</p>
-              <p className="text-xs text-slate-400">Computers, UPS, peripherals</p>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Assets tracked</p>
+              <p className="text-2xl font-bold text-slate-900 dark:text-slate-50">{assetsCount}</p>
+              <p className="text-xs text-slate-400 dark:text-slate-500">Computers, UPS, peripherals</p>
             </div>
           </div>
-          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">
             Quick actions
           </p>
           <div className="grid gap-2">
@@ -619,9 +632,9 @@ export function AdminDashboardPage() {
                 <Link
                   key={action.to}
                   to={action.to}
-                  className="group flex items-center gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:border-orange-200 hover:bg-orange-50/50 hover:text-orange-800"
+                  className="group flex items-center gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:border-orange-200 hover:bg-orange-50/50 hover:text-orange-800 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-200 dark:hover:border-orange-500/30 dark:hover:bg-orange-950/35 dark:hover:text-orange-200"
                 >
-                  <span className="grid h-8 w-8 place-items-center rounded-lg bg-slate-50 text-slate-500 transition group-hover:bg-white group-hover:text-brand-600">
+                  <span className="grid h-8 w-8 place-items-center rounded-lg bg-slate-50 text-slate-500 transition group-hover:bg-white group-hover:text-brand-600 dark:bg-slate-800 dark:text-slate-400 dark:group-hover:bg-slate-900 dark:group-hover:text-brand-400">
                     <Icon className="h-4 w-4" />
                   </span>
                   <span className="flex-1">{action.label}</span>

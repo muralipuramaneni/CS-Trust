@@ -1,12 +1,15 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user
 from app.models import User
 from app.schemas.auth import (
     AuthUserOut,
     ChangePasswordRequest,
+    GoogleAuthConfigOut,
+    GoogleLoginRequest,
     LoginRequest,
     MessageOut,
     SignupRequest,
@@ -15,6 +18,24 @@ from app.schemas.auth import (
 from app.services import auth as auth_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.get("/google/config", response_model=GoogleAuthConfigOut)
+def google_auth_config():
+    settings = get_settings()
+    client_id = settings.google_client_id.strip()
+    return GoogleAuthConfigOut(client_id=client_id, enabled=bool(client_id))
+
+
+@router.post("/google", response_model=TokenResponse)
+def login_with_google(payload: GoogleLoginRequest, db: Session = Depends(get_db)):
+    user = auth_service.authenticate_google_user(
+        db,
+        id_token_value=payload.id_token,
+        access_token=payload.access_token,
+        requested_role=payload.role,
+    )
+    return auth_service.issue_token_for_user(db, user)
 
 
 @router.post("/login", response_model=TokenResponse)

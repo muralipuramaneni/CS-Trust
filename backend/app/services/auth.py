@@ -1,6 +1,10 @@
 from fastapi import HTTPException, status
+import requests
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models import School, Sponsor, Teacher, User
 from app.schemas.auth import AuthUserOut
 from app.utils.ids import generate_id, generate_temp_password
@@ -59,6 +63,185 @@ def authenticate_user(db: Session, email: str, password: str) -> User:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
     _ensure_profile_active(db, user)
     return user
+
+
+def _google_phone_placeholder(google_sub: str) -> str:
+    digits = "".join(ch for ch in google_sub if ch.isdigit())
+    if len(digits) >= 10:
+        return digits[-10:]
+    return f"9{abs(hash(google_sub)) % 1_000_000_000:09d}"
+
+
+def _is_trust_admin_email(email: str) -> bool:
+    local, _, domain = email.partition("@")
+    if domain != "chaitanyasaradhi.org":
+        return False
+    return local in {"admin", "superadmin"} or local.startswith("admin") or local.startswith("superadmin")
+
+
+def _link_or_create_teacher_user(db: Session, teacher: Teacher, name: str, google_sub: str) -> User:
+    user = db.query(User).filter(User.id == teacher.user_id).first() if teacher.user_id else None
+    if not user:
+        user = db.query(User).filter(User.email == normalize_email(teacher.email)).first()
+    if user:
+        if user.role == "sponsor":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Sponsors must sign in with email and password.",
+            )
+        if not teacher.user_id:
+            teacher.user_id = user.id
+        if user.school_id != teacher.school_id:
+            user.school_id = teacher.school_id
+        db.add(teacher)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        _ensure_profile_active(db, user)
+        return user
+
+    user_id = generate_id("usr")
+    user = User(
+        id=user_id,
+        name=name.strip() or teacher.name,
+        email=normalize_email(teacher.email),
+        phone=_google_phone_placeholder(google_sub),
+        password_hash=hash_password(generate_temp_password()),
+        role="teacher",
+        school_id=teacher.school_id,
+        must_change_password=False,
+    )
+    teacher.user_id = user_id
+    db.add(user)
+    db.add(teacher)
+    db.commit()
+    db.refresh(user)
+    _ensure_profile_active(db, user)
+    return user
+
+
+def _create_admin_google_user(db: Session, email: str, name: str, google_sub: str) -> User:
+    email_n = normalize_email(email)
+    phone = _google_phone_placeholder(google_sub)
+    if db.query(User).filter(User.phone == phone).first():
+        phone = f"8{abs(hash(f'{google_sub}:{email_n}')) % 1_000_000_000:09d}"
+
+    user = User(
+        id=generate_id("usr"),
+        name=name.strip() or "Trust Admin",
+        email=email_n,
+        phone=phone,
+        password_hash=hash_password(generate_temp_password()),
+        role="admin",
+        must_change_password=False,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def _google_profile_from_id_token(token: str) -> dict[str, str]:
+    settings = get_settings()
+    audience = settings.google_client_id.strip() or None
+    try:
+        payload = id_token.verify_oauth2_token(token, google_requests.Request(), audience)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google sign-in failed. Please try again.",
+        ) from exc
+
+    email = normalize_email(str(payload.get("email") or ""))
+    if not email or not payload.get("email_verified"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google account email could not be verified.",
+        )
+    return {
+        "email": email,
+        "name": str(payload.get("name") or email.split("@", 1)[0]),
+        "sub": str(payload.get("sub") or email),
+    }
+
+
+def _google_profile_from_access_token(token: str) -> dict[str, str]:
+    try:
+        response = requests.get(
+            "https://www.googleapis.com/oauth2/v3/userinfo",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not reach Google to verify this account.",
+        ) from exc
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google sign-in failed. Please try again.",
+        )
+    payload = response.json()
+    email = normalize_email(str(payload.get("email") or ""))
+    verified = payload.get("email_verified")
+    if verified in (False, "false", "False"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google account email could not be verified.",
+        )
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google account email could not be verified.",
+        )
+    return {
+        "email": email,
+        "name": str(payload.get("name") or email.split("@", 1)[0]),
+        "sub": str(payload.get("sub") or email),
+    }
+
+
+def authenticate_google_user(
+    db: Session,
+    *,
+    id_token_value: str | None = None,
+    access_token: str | None = None,
+    requested_role: str | None = None,
+) -> User:
+    token_id = (id_token_value or "").strip()
+    token_access = (access_token or "").strip()
+    if not token_id and not token_access:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google sign-in did not complete.",
+        )
+
+    profile = (
+        _google_profile_from_id_token(token_id)
+        if token_id
+        else _google_profile_from_access_token(token_access)
+    )
+    email = profile["email"]
+    name = profile["name"]
+    google_sub = profile["sub"]
+
+    user = db.query(User).filter(User.email == email).first()
+    if user:
+        _ensure_profile_active(db, user)
+        return user
+
+    teacher = db.query(Teacher).filter(Teacher.email == email).first()
+    if teacher:
+        return _link_or_create_teacher_user(db, teacher, name, google_sub)
+
+    if requested_role == "admin" and _is_trust_admin_email(email):
+        return _create_admin_google_user(db, email, name, google_sub)
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="No account found for this Google email. Use the same email as your portal login, or contact your administrator.",
+    )
 
 
 def _ensure_profile_active(db: Session, user: User) -> None:

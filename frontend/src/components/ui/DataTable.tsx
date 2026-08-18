@@ -94,7 +94,7 @@ export function DataTableEmpty({
         colSpan={colSpan}
         className="!bg-transparent p-0 hover:!bg-transparent dark:!bg-transparent"
       >
-        <EmptyState message={message} className="min-h-[10rem] py-12" />
+        <EmptyState message={message} className="m-4 min-h-[10rem] py-12" />
       </Td>
     </tr>
   );

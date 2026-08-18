@@ -115,4 +115,14 @@ export function AuthForm({
   );
 }
 
+export function AuthDivider({ label = 'or' }: { label?: string }) {
+  return (
+    <div className="flex items-center gap-3 py-1">
+      <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" aria-hidden="true" />
+      <span className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</span>
+      <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" aria-hidden="true" />
+    </div>
+  );
+}
+
 export const authPrimaryButtonClass = 'mt-0.5';

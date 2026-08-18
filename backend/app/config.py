@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173"
     algorithm: str = "HS256"
     demo_otp: str = "123456"
+    google_client_id: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:

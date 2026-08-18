@@ -12,6 +12,7 @@ import {
   changePassword as changePasswordService,
   clearSession,
   loginWithPassword,
+  loginWithGoogle,
   logoutRemote,
   persistSession,
   registerUser,
@@ -23,6 +24,10 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (credentials: LoginCredentials) => Promise<AuthUser>;
+  loginWithGoogle: (
+    payload: { idToken?: string; accessToken?: string; role?: 'admin' | 'teacher' | 'sponsor' },
+    rememberMe?: boolean,
+  ) => Promise<AuthUser>;
   signup: (payload: SignupPayload) => Promise<AuthUser>;
   logout: () => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
@@ -72,6 +77,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return nextUser;
   }, []);
 
+  const loginWithGoogleHandler = useCallback(
+    async (
+      payload: { idToken?: string; accessToken?: string; role?: 'admin' | 'teacher' | 'sponsor' },
+      rememberMe = true,
+    ) => {
+      const nextUser = await loginWithGoogle(payload, rememberMe);
+      setUser(nextUser);
+      persistSession(nextUser, rememberMe);
+      return nextUser;
+    },
+    [],
+  );
+
   const signup = useCallback(async (payload: SignupPayload) => {
     const nextUser = await registerUser(payload);
     setUser(nextUser);
@@ -114,12 +132,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isAuthenticated: Boolean(user),
       isLoading,
       login,
+      loginWithGoogle: loginWithGoogleHandler,
       signup,
       logout,
       changePassword,
       refreshUser,
     }),
-    [user, isLoading, login, signup, logout, changePassword, refreshUser],
+    [user, isLoading, login, loginWithGoogleHandler, signup, logout, changePassword, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

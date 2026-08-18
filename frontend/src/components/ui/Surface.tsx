@@ -253,7 +253,8 @@ export function EmptyState({
     <div
       role="status"
       className={cn(
-        'relative flex min-h-[11rem] w-full flex-col items-center justify-center overflow-hidden px-4 py-10',
+        'relative flex min-h-[11rem] w-full flex-col items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-10',
+        'dark:border-slate-700 dark:bg-slate-900/50',
         className,
       )}
     >

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useCallback, type FormEvent } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Alert,
@@ -11,9 +11,11 @@ import {
 import { isValidEmail } from '../../../utils/validation';
 import { roleHomePath } from '../../../types/auth';
 import { useAuth } from '../hooks/useAuth';
+import { GoogleSignInButton } from './GoogleSignInButton';
 import {
   AuthActionsRow,
   AuthDemoPill,
+  AuthDivider,
   AuthForm,
   AuthHelperCard,
   AuthTextLink,
@@ -59,16 +61,65 @@ function isAdminLoginContext(role: DemoRole | null, email: string) {
 export function LoginForm() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
 
   const [email, setEmail] = useState('admin@chaitanyasaradhi.org');
   const [password, setPassword] = useState('demo1234');
   const [selectedRole, setSelectedRole] = useState<DemoRole | null>('admin');
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
 
   const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
   const showAdminPasswordHelp = isAdminLoginContext(selectedRole, email);
+  const googleRole: 'admin' | 'teacher' | 'sponsor' =
+    selectedRole ?? (showAdminPasswordHelp ? 'admin' : 'teacher');
+  const busy = isSubmitting || isGoogleSubmitting;
+
+  const navigateAfterLogin = useCallback(
+    (user: Awaited<ReturnType<typeof login>>) => {
+      if (user.mustChangePassword) {
+        navigate('/change-password', { replace: true });
+        return;
+      }
+      const home = roleHomePath(user.role);
+      const target =
+        from &&
+        from !== '/login' &&
+        from !== '/signup' &&
+        from !== '/forgot-password' &&
+        from !== '/change-password' &&
+        from !== '/dashboard' &&
+        from.startsWith(home)
+          ? from
+          : home;
+      navigate(target, { replace: true });
+    },
+    [from, navigate],
+  );
+
+  const handleGoogleError = useCallback((message: string) => {
+    setErrors({ form: message });
+  }, []);
+
+  const handleGoogleSuccess = useCallback(
+    async (payload: { idToken?: string; accessToken?: string }) => {
+      setIsGoogleSubmitting(true);
+      setErrors({});
+      try {
+        const user = await loginWithGoogle({ ...payload, role: googleRole }, true);
+        navigateAfterLogin(user);
+      } catch (error) {
+        setErrors({
+          form:
+            error instanceof Error ? error.message : 'Unable to sign in with Google. Please try again.',
+        });
+      } finally {
+        setIsGoogleSubmitting(false);
+      }
+    },
+    [googleRole, loginWithGoogle, navigateAfterLogin],
+  );
 
   function validate(): FormErrors {
     const next: FormErrors = {};
@@ -88,22 +139,7 @@ export function LoginForm() {
     setErrors({});
     try {
       const user = await login({ email, password, rememberMe: true });
-      if (user.mustChangePassword) {
-        navigate('/change-password', { replace: true });
-        return;
-      }
-      const home = roleHomePath(user.role);
-      const target =
-        from &&
-        from !== '/login' &&
-        from !== '/signup' &&
-        from !== '/forgot-password' &&
-        from !== '/change-password' &&
-        from !== '/dashboard' &&
-        from.startsWith(home)
-          ? from
-          : home;
-      navigate(target, { replace: true });
+      navigateAfterLogin(user);
     } catch (error) {
       setErrors({
         form:
@@ -127,7 +163,7 @@ export function LoginForm() {
           placeholder="admin@chaitanyasaradhi.org"
           value={email}
           hasError={Boolean(errors.email)}
-          disabled={isSubmitting}
+          disabled={busy}
           className="rounded-lg border-slate-200 bg-slate-50"
           onChange={(event) => {
             setEmail(event.target.value);
@@ -143,7 +179,7 @@ export function LoginForm() {
           placeholder="Enter password"
           value={password}
           hasError={Boolean(errors.password)}
-          disabled={isSubmitting}
+          disabled={busy}
           className="rounded-lg border-slate-200 bg-slate-50"
           onChange={(event) => setPassword(event.target.value)}
         />
@@ -165,9 +201,16 @@ export function LoginForm() {
         )}
       </AuthActionsRow>
 
-      <Button type="submit" variant="primary" fullWidth disabled={isSubmitting} className={authPrimaryButtonClass}>
+      <Button type="submit" variant="primary" fullWidth disabled={busy} className={authPrimaryButtonClass}>
         {isSubmitting ? <InlineLoader>Signing in…</InlineLoader> : 'Sign in'}
       </Button>
+
+      <AuthDivider />
+      <GoogleSignInButton
+        disabled={busy}
+        onSuccess={(payload) => void handleGoogleSuccess(payload)}
+        onError={handleGoogleError}
+      />
 
       <AuthHelperCard
         title={
@@ -185,7 +228,7 @@ export function LoginForm() {
           {DEMO_ACCOUNTS.map((account) => (
             <AuthDemoPill
               key={account.label}
-              disabled={isSubmitting}
+              disabled={busy}
               onClick={() => {
                 setEmail(account.email);
                 setPassword(account.password);
