@@ -81,6 +81,7 @@ import {
 import { localDateKey } from '../../../utils/date';
 import { progressBadgeTone, progressLabel } from '../../../utils/progress';
 import { mergeAttendanceStudents } from '../../../data/demoAttendanceStudents';
+import { TeacherAssistChat } from '../../../components/teacher/TeacherAssistChat';
 import {
   generateTopicDescription,
   generateSyllabusSuggestion,
@@ -385,7 +386,7 @@ export function TeacherDashboardPage() {
             Key metrics for your school and responsibilities
           </p>
         </div>
-        <div className="grid w-full gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid w-full gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
           <StatCard
             label="Assigned classes"
             value={classCount || '—'}
@@ -637,6 +638,20 @@ export function TeacherDashboardPage() {
           </ul>
         </Card>
       </section>
+
+      <TeacherAssistChat
+        context={{
+          firstName,
+          schoolName: school?.name,
+          clockedIn: Boolean(clockedIn),
+          clockInTime: todayAttendance?.clockIn,
+          hours: todayAttendance?.hours,
+          studentCount,
+          classCount,
+          assignedClasses: teacher?.assignedClasses ?? [],
+          syllabusPct,
+        }}
+      />
     </div>
   );
 }

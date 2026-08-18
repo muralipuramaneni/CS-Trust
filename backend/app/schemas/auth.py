@@ -59,6 +59,21 @@ class MessageOut(BaseModel):
     message: str
 
 
+class GoogleLoginRequest(BaseModel):
+    model_config = API_MODEL_CONFIG
+
+    id_token: str | None = None
+    access_token: str | None = None
+    role: Role | None = None
+
+
+class GoogleAuthConfigOut(BaseModel):
+    model_config = API_MODEL_CONFIG
+
+    client_id: str
+    enabled: bool
+
+
 class TempPasswordOut(BaseModel):
     model_config = API_MODEL_CONFIG
 

@@ -5,6 +5,7 @@ import {
   fetchMe,
   getAccessToken,
   loginApi,
+  loginWithGoogleApi,
   logoutApi,
   signupApi,
 } from '../../../api';
@@ -65,6 +66,28 @@ export async function loginWithPassword(
   } catch (error) {
     if (error instanceof Error && error.message) throw error;
     throw new Error('Invalid email or password.');
+  }
+}
+
+export async function loginWithGoogle(
+  payload: { idToken?: string; accessToken?: string; role?: 'admin' | 'teacher' | 'sponsor' },
+  rememberMe = true,
+): Promise<AuthUser> {
+  if (!payload.idToken?.trim() && !payload.accessToken?.trim()) {
+    throw new Error('Google sign-in did not complete.');
+  }
+
+  try {
+    const user = await loginWithGoogleApi(payload, rememberMe);
+    const sanitized = sanitizeUser(user);
+    if (!sanitized) {
+      clearAccessToken();
+      throw new Error('Google sign-in succeeded but user profile was incomplete. Please try again.');
+    }
+    return sanitized;
+  } catch (error) {
+    if (error instanceof Error && error.message) throw error;
+    throw new Error('Google sign-in failed. Please try again.');
   }
 }
 

@@ -1,7 +1,7 @@
 import { cn } from '../utils/cn';
 
 interface BrandMarkProps {
-  size?: 'sm' | 'md' | 'lg' | 'form';
+  size?: 'sm' | 'md' | 'lg' | 'form' | 'auth';
   showTagline?: boolean;
   /** Show “Chaitanya Saradhi Trust” next to the logo */
   showName?: boolean;
@@ -17,6 +17,8 @@ const sizeClasses = {
   lg: 'h-14 w-14',
   /** Auth screens — smaller on phone so it clears the form card */
   form: 'h-11 w-11 max-h-11 max-w-11 sm:h-14 sm:w-14 sm:max-h-14 sm:max-w-14 lg:h-[5.25rem] lg:w-[5.25rem] lg:max-h-[5.25rem] lg:max-w-[5.25rem]',
+  /** Mobile auth heading — large, centered, high contrast */
+  auth: 'h-[4.75rem] w-[4.75rem] max-h-[4.75rem] max-w-[4.75rem]',
 } as const;
 
 const nameSizeClasses = {
@@ -24,6 +26,7 @@ const nameSizeClasses = {
   md: 'text-sm leading-snug',
   lg: 'text-base leading-snug',
   form: 'text-base leading-snug',
+  auth: 'text-base leading-snug',
 } as const;
 
 export function BrandMark({

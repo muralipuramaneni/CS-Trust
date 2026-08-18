@@ -3,12 +3,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { BrandMark } from '../BrandMark';
 import { ThemeToggle } from '../ui/ThemeToggle';
+import { NotificationsMenu } from './NotificationsMenu';
 import { useAuth } from '../../features/auth/hooks/useAuth';
 import { navForRole } from '../../config/navigation';
 import { roleHomePath } from '../../types/auth';
 import { cn } from '../../utils/cn';
 import {
-  IconBell,
   IconChevronLeft,
   IconChevronRight,
   IconLogout,
@@ -87,6 +87,15 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   }, [collapsed]);
 
   useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open]);
+
+  useEffect(() => {
     if (!userMenuOpen) return;
 
     function handlePointerDown(event: MouseEvent) {
@@ -133,8 +142,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         onClick={() => setOpen(false)}
         className={({ isActive }) =>
           cn(
-            'group flex items-center rounded-lg text-[0.84rem] font-medium transition-all duration-200',
-            collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5',
+            'group flex items-center gap-3 rounded-lg px-3 py-2.5 text-[0.84rem] font-medium transition-all duration-200',
+            collapsed && 'lg:justify-center lg:gap-0 lg:px-2',
             isActive
               ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white'
               : 'text-slate-300 hover:bg-white/8 hover:text-white',
@@ -153,20 +162,24 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             >
               <Icon className="h-4 w-4" />
             </span>
-            {!collapsed ? (
-              <>
-                <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                {item.readOnly ? (
-                  <span
-                    className={cn(
-                      'rounded-lg px-1.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-wide',
-                      isActive ? 'bg-white/15 text-white' : 'bg-sky-500/15 text-sky-300',
-                    )}
-                  >
-                    View
-                  </span>
-                ) : null}
-              </>
+            <span
+              className={cn(
+                'min-w-0 flex-1 truncate',
+                collapsed && 'lg:hidden',
+              )}
+            >
+              {item.label}
+            </span>
+            {item.readOnly ? (
+              <span
+                className={cn(
+                  'rounded-lg px-1.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-wide',
+                  isActive ? 'bg-white/15 text-white' : 'bg-sky-500/15 text-sky-300',
+                  collapsed && 'lg:hidden',
+                )}
+              >
+                View
+              </span>
             ) : null}
           </>
         )}
@@ -186,9 +199,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       <div className="flex min-h-svh w-full">
         <aside
           className={cn(
-            'fixed inset-y-0 left-0 z-30 flex shrink-0 flex-col border-r transition-[width,transform] duration-300 ease-out lg:static lg:translate-x-0',
+            'fixed inset-y-0 left-0 z-30 flex h-svh max-h-svh shrink-0 flex-col overflow-hidden border-r transition-[width,transform] duration-300 ease-out lg:static lg:h-auto lg:max-h-none lg:translate-x-0',
             collapsed
-              ? 'w-[4.75rem] lg:w-[4.75rem]'
+              ? 'w-[min(17rem,88vw)] lg:w-[4.75rem]'
               : 'w-[min(17rem,88vw)] lg:w-64 xl:w-[17rem]',
             'border-white/8 bg-[#0b1220] text-slate-100 shadow-[inset_-1px_0_0_rgba(255,255,255,0.04)]',
             open ? 'translate-x-0' : '-translate-x-full',
@@ -196,26 +209,31 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         >
           <div
             className={cn(
-              'flex shrink-0 items-center border-b border-white/8 py-3',
-              collapsed ? 'flex-col gap-2 px-2' : 'gap-1.5 px-2.5',
+              'flex shrink-0 items-center gap-1.5 border-b border-white/8 px-2.5 py-3',
+              collapsed && 'lg:flex-col lg:gap-2 lg:px-2',
             )}
           >
             <Link
               to={home}
               className={cn(
-                'inline-flex min-w-0 items-center overflow-hidden rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400',
-                collapsed ? 'justify-center' : 'flex-1',
+                'inline-flex min-w-0 flex-1 items-center overflow-hidden rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400',
+                collapsed && 'lg:flex-none lg:justify-center',
               )}
               onClick={() => setOpen(false)}
               title="Chaitanya Saradhi Trust"
             >
-              <BrandMark size="sm" showName={!collapsed} theme="dark" className="max-w-full" />
+              <BrandMark
+                size="sm"
+                showName
+                theme="dark"
+                className={cn('max-w-full', collapsed && 'lg:[&>span]:hidden')}
+              />
             </Link>
             <button
               type="button"
               onClick={() => setCollapsed((value) => !value)}
               className={cn(
-                'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400',
+                'hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 lg:inline-flex',
                 collapsed && 'mx-auto',
               )}
               aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -231,7 +249,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           </div>
 
           <nav
-            className={cn('flex-1 space-y-5 py-4', collapsed ? 'px-1.5' : 'px-2.5')}
+            className={cn(
+              'min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain py-4 touch-pan-y [-webkit-overflow-scrolling:touch]',
+              collapsed ? 'px-1.5 lg:px-1.5' : 'px-2.5',
+            )}
             aria-label="Main"
           >
             {groups
@@ -242,7 +263,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                         {group}
                       </p>
                     ) : (
-                      <div className="mx-auto mb-1.5 h-px w-6 bg-white/10" aria-hidden />
+                      <>
+                        <p className="mb-1.5 px-3 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-slate-500 lg:hidden">
+                          {group}
+                        </p>
+                        <div className="mx-auto mb-1.5 hidden h-px w-6 bg-white/10 lg:block" aria-hidden />
+                      </>
                     )}
                     <div className="space-y-0.5">{groupItems.map(renderNavItem)}</div>
                   </div>
@@ -252,23 +278,28 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
           <div
             className={cn(
-              'mt-auto shrink-0 border-t border-white/8 py-3',
-              collapsed ? 'px-1.5' : 'px-3',
+              'mt-auto shrink-0 border-t border-white/8 px-3 py-3',
+              collapsed && 'lg:px-1.5',
             )}
           >
-            {collapsed ? (
-              <p className="text-center text-[0.6rem] leading-tight text-slate-500">
-                © {new Date().getFullYear()}
+            <p className="text-center text-[0.65rem] leading-relaxed text-slate-500">
+              {collapsed ? (
+                <>
+                  <span className="lg:hidden">© {new Date().getFullYear()} Chaitanya Saradhi Trust</span>
+                  <span className="hidden lg:inline">© {new Date().getFullYear()}</span>
+                </>
+              ) : (
+                <>© {new Date().getFullYear()} Chaitanya Saradhi Trust</>
+              )}
+            </p>
+            {!collapsed ? (
+              <p className="mt-0.5 text-center text-[0.62rem] leading-relaxed text-slate-600">
+                All rights reserved.
               </p>
             ) : (
-              <>
-                <p className="text-center text-[0.65rem] leading-relaxed text-slate-500">
-                  © {new Date().getFullYear()} Chaitanya Saradhi Trust
-                </p>
-                <p className="mt-0.5 text-center text-[0.62rem] leading-relaxed text-slate-600">
-                  All rights reserved.
-                </p>
-              </>
+              <p className="mt-0.5 text-center text-[0.62rem] leading-relaxed text-slate-600 lg:hidden">
+                All rights reserved.
+              </p>
             )}
           </div>
         </aside>
@@ -314,14 +345,13 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
                 <ThemeToggle compact />
 
-                <button
-                  type="button"
-                  className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center bg-transparent text-slate-600 transition hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
-                  aria-label="Notifications"
-                >
-                  <IconBell />
-                  <span className="absolute right-2.5 top-2.5 h-1.5 w-1.5 rounded-full bg-brand-500" />
-                </button>
+                <NotificationsMenu
+                  user={user}
+                  forceClosed={userMenuOpen}
+                  onOpenChange={(next) => {
+                    if (next) setUserMenuOpen(false);
+                  }}
+                />
 
                 {/* Top-right user menu */}
                 <div className="relative" ref={userMenuRef}>

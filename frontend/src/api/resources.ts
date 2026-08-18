@@ -147,6 +147,24 @@ export async function changePasswordApi(body: {
   return apiPost<{ message: string }>('/auth/change-password', body);
 }
 
+export interface GoogleAuthConfig {
+  clientId: string;
+  enabled: boolean;
+}
+
+export async function fetchGoogleAuthConfig(): Promise<GoogleAuthConfig> {
+  return apiGet<GoogleAuthConfig>('/auth/google/config');
+}
+
+export async function loginWithGoogleApi(
+  payload: { idToken?: string; accessToken?: string; role?: 'admin' | 'teacher' | 'sponsor' },
+  rememberMe = true,
+): Promise<AuthUser> {
+  const result = await apiPost<TokenResponse>('/auth/google', payload);
+  setAccessToken(result.access_token, rememberMe);
+  return result.user;
+}
+
 /* ── Schools ──────────────────────────────────────────── */
 
 export const listSchools = (params?: { status?: string }) =>
